@@ -1,0 +1,15 @@
+api:
+  # Exposed on the LAN during camera bring-up. Once the Zig dashboard proxies
+  # WebRTC signaling, bind this to 127.0.0.1:1984 instead.
+  listen: "0.0.0.0:1984"
+
+rtsp:
+  # Recording will consume this locally without exposing RTSP to the LAN.
+  listen: "127.0.0.1:8554"
+
+webrtc:
+  # WebRTC media travels directly between go2rtc and the browser.
+  listen: ":8555"
+
+streams:
+  p1s: "exec:/usr/local/libexec/pipanda-camera-source#killsignal=2#killtimeout=5"

@@ -23,7 +23,7 @@ Implemented so far: the backend that talks to the printer.
 | Cloud MQTT status stream | done |
 | LAN-mode MQTT status stream | done, needs `PIPANDA_PRINTER_HOST` |
 | Chamber light / timelapse commands | done |
-| Camera capture and streaming | not started |
+| Camera Module 3 capture and WebRTC streaming | Raspberry Pi OS module done; hardware validation pending |
 | Timelapse recording | not started |
 | Home Assistant integration | not started |
 | HTTP dashboard | not started |
@@ -97,7 +97,39 @@ src/
   net/
     mqtt.zig            minimal MQTT 3.1.1
     tls_stream.zig      TLS over TCP as a Reader/Writer pair
+deploy/pi-os/
+  install.sh            Raspberry Pi OS Lite installer
+  pipanda-camera-source validated rpicam-vid hardware H.264 source
+  pipanda-camera.service native systemd service
+  go2rtc.yaml           WebRTC media sidecar configuration
 ```
+
+## Camera on Raspberry Pi OS Lite
+
+The `pi-os-native` branch uses Raspberry Pi OS Lite as the deployment base. Nix
+is only a development environment and is not required on the Pi.
+
+The live path uses the Zero 2 W's hardware H.264 encoder and does not transcode:
+
+```text
+Camera Module 3 -> rpicam-vid -> go2rtc -> WebRTC
+```
+
+Install on a 64-bit Raspberry Pi OS Lite system:
+
+```sh
+sudo ./deploy/pi-os/install.sh
+sudo pipanda-camera-test
+```
+
+Then open:
+
+```text
+http://<pi-address>:1984/stream.html?src=p1s&mode=webrtc
+```
+
+See [`deploy/pi-os/README.md`](deploy/pi-os/README.md) for physical setup,
+configuration, security, diagnostics and uninstall instructions.
 
 ### Why the status model is a JSON document
 

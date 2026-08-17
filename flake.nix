@@ -31,6 +31,8 @@
             pkgs.curl
             pkgs.jq
             pkgs.openssl # s_client for inspecting the printer's TLS cert
+            pkgs.shellcheck
+            pkgs.yq-go
 
             # phase 2: camera capture + timelapse assembly
             pkgs.ffmpeg-headless
