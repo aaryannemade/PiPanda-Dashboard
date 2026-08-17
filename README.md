@@ -32,21 +32,25 @@ Implemented so far: the backend that talks to the printer.
 
 ```sh
 nix develop
-zig build
+just build
 ```
 
 Then authenticate and watch the printer:
 
 ```sh
-zig build run -- login          # prompts for email + password, handles 2FA
-zig build run -- login --code   # for accounts with no password, only an emailed code
-zig build run -- devices        # lists printers on the account
-zig build run -- use <id>       # only needed if the account has several printers
-zig build run -- watch          # live status, one line per update
-zig build run -- watch --json   # the merged JSON status per update
-zig build run -- light off      # chamber light
-zig build run -- serve --lan    # frontend API on 127.0.0.1:8080
+just login              # prompts for email + password, handles 2FA
+just login-code         # for accounts with no password, only an emailed code
+just devices            # lists printers on the account
+just run use <id>       # only needed if the account has several printers
+just watch              # live status, one line per update
+just watch --json       # the merged JSON status per update
+just light off          # chamber light
+just serve --lan        # frontend API on 127.0.0.1:8080
 ```
+
+Run `just` to list all development recipes. `just check` runs formatting,
+type-checking and unit tests; `just ci` also validates the camera deployment,
+cross-compiles for the Pi and evaluates the flake.
 
 Add `--verbose` to any command to log protocol steps to stderr. Credentials are
 redacted: the access token is never printed, the MQTT username appears as a

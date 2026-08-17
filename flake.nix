@@ -25,6 +25,7 @@
             # backend toolchain
             pkgs.zig
             pkgs.zls
+            pkgs.just
 
             # protocol poking: talk to the printer / cloud by hand
             pkgs.mosquitto # mosquitto_sub, mosquitto_pub
@@ -51,9 +52,9 @@
             mkdir -p "$PIPANDA_STATE_DIR"
 
             echo "pipanda dev shell — zig $(zig version)"
-            echo "  zig build run -- login          authenticate with the bambu cloud"
-            echo "  zig build run -- watch          stream printer status"
-            echo "  cross-compile: zig build -Dtarget=aarch64-linux-musl -Dcpu=cortex_a53"
+            echo "  just                            list development commands"
+            echo "  just check                      run backend checks"
+            echo "  just serve --lan                run the frontend API"
           '';
         };
       });
