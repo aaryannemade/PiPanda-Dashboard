@@ -1,0 +1,6 @@
+.zig-cache/
+zig-out/
+
+# Access tokens and LAN codes when PIPANDA_STATE_DIR points into the tree,
+# which is what the dev shell does.
+.state/
