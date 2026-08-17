@@ -1,0 +1,82 @@
+#!/bin/bash
+set -euo pipefail
+
+service_was_active=0
+output=""
+
+# Called indirectly by the EXIT trap.
+# shellcheck disable=SC2329
+cleanup() {
+  if [[ -n "$output" ]]; then
+    rm -f "$output"
+  fi
+  if (( service_was_active )); then
+    systemctl start pipanda-camera.service
+  fi
+}
+trap cleanup EXIT
+
+if (( EUID != 0 )); then
+  echo "Run this diagnostic with sudo: sudo pipanda-camera-test" >&2
+  exit 1
+fi
+
+for command in rpicam-hello rpicam-vid curl timeout; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "Missing required command: $command" >&2
+    exit 1
+  fi
+done
+
+echo "Detected cameras:"
+rpicam-hello --list-cameras
+
+# Stop go2rtc so a current viewer cannot hold the camera while we perform a
+# deterministic direct encoder test.
+if systemctl is-active --quiet pipanda-camera.service; then
+  service_was_active=1
+  systemctl stop pipanda-camera.service
+fi
+
+output="$(mktemp --suffix=.h264)"
+
+echo
+echo "Capturing four seconds through the production camera wrapper..."
+set +e
+timeout --signal=INT --kill-after=2s 4s \
+  /usr/local/libexec/pipanda-camera-source >"$output"
+capture_status=$?
+set -e
+
+# timeout returns 124 after asking an otherwise healthy continuous capture to
+# stop. A clean early exit is also acceptable; anything else is a real failure.
+if [[ $capture_status -ne 0 && $capture_status -ne 124 ]]; then
+  echo "Capture failed with exit status $capture_status" >&2
+  exit "$capture_status"
+fi
+
+bytes="$(stat --format=%s "$output")"
+if (( bytes == 0 )); then
+  echo "Capture failed: encoder produced an empty file" >&2
+  exit 1
+fi
+echo "Capture OK: $bytes bytes"
+
+systemctl start pipanda-camera.service
+service_was_active=0
+
+echo
+echo "Waiting for go2rtc API..."
+for _ in {1..20}; do
+  if curl --fail --silent \
+    http://127.0.0.1:1984/api/streams >/dev/null; then
+    echo "go2rtc API OK"
+    echo "Open: http://$(hostname -I | awk '{print $1}'):1984/stream.html?src=p1s&mode=webrtc"
+    exit 0
+  fi
+  sleep 0.25
+done
+
+echo "go2rtc did not become ready" >&2
+echo "Inspect: journalctl -u pipanda-camera.service" >&2
+exit 1

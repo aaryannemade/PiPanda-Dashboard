@@ -23,7 +23,7 @@ Implemented so far: the backend that talks to the printer.
 | Cloud MQTT status stream | done |
 | LAN-mode MQTT status stream | done, needs `PIPANDA_PRINTER_HOST` |
 | Chamber light / timelapse commands | done |
-| Camera capture and WebRTC streaming | NixOS module done; hardware validation pending |
+| Camera Module 3 capture and WebRTC streaming | Raspberry Pi OS module done; hardware validation pending |
 | Timelapse recording | not started |
 | Home Assistant integration | not started |
 | HTTP dashboard | not started |
@@ -97,110 +97,39 @@ src/
   net/
     mqtt.zig            minimal MQTT 3.1.1
     tls_stream.zig      TLS over TCP as a Reader/Writer pair
-nix/
-  modules/
-    camera.nix          rpicam-vid hardware H.264 into go2rtc
-    pi-zero-2-camera.nix  firmware camera detection and CMA setup
+deploy/pi-os/
+  install.sh            Raspberry Pi OS Lite installer
+  pipanda-camera-source validated rpicam-vid hardware H.264 source
+  pipanda-camera.service native systemd service
+  go2rtc.yaml           WebRTC media sidecar configuration
 ```
 
-## Raspberry Pi camera
+## Camera on Raspberry Pi OS Lite
 
-The camera pipeline is deliberately outside the Zig process:
+The `pi-os-native` branch uses Raspberry Pi OS Lite as the deployment base. Nix
+is only a development environment and is not required on the Pi.
+
+The live path uses the Zero 2 W's hardware H.264 encoder and does not transcode:
 
 ```text
-Camera Module 3 -> libcamera/rpicam-vid -> H.264 pipe -> go2rtc -> WebRTC browser
+Camera Module 3 -> rpicam-vid -> go2rtc -> WebRTC
 ```
 
-The Zero 2 W has a hardware H.264 encoder. `rpicam-vid` uses it through V4L2,
-so the live path does not decode or transcode video and the Zig backend does not
-copy video frames. go2rtc starts the capture process when the first viewer
-arrives and stops it when the last viewer leaves.
-
-Defaults:
-
-- 1920x1080 at 30 fps
-- H.264 baseline, 4 Mbit/s
-- one-second keyframe interval with inline SPS/PPS
-- continuous Camera Module 3 autofocus
-- go2rtc API/demo page on TCP 1984
-- WebRTC media on TCP and UDP 8555
-- RTSP bound to localhost only
-
-### Physical setup
-
-Power the Pi completely off before connecting the camera. The Zero 2 W uses the
-narrow 22-pin CSI connector; a normal Camera Module 3 uses a 15-pin connector,
-so it needs the correct 15-to-22-pin camera cable. Do not use the visually
-similar display cable.
-
-### NixOS setup
-
-The flake uses the active
-[`nvmd/nixos-raspberrypi`](https://github.com/nvmd/nixos-raspberrypi)
-framework for the vendor kernel, matching firmware, Raspberry Pi libcamera and
-`rpicam-apps`. The older `nix-community/raspberry-pi-nix` project is archived.
-
-`nixosConfigurations.pipanda-pi` evaluates a Pi Zero 2 W camera system. It is
-intentionally not a complete install image yet: Wi-Fi credentials, an SSH key
-and the deployment user must not be committed to this repository. The relevant
-composition is:
-
-```nix
-modules = [
-  nixos-raspberrypi.nixosModules.raspberry-pi-02.base
-  self.nixosModules.pi-zero-2-camera
-  self.nixosModules.pipanda-camera
-  {
-    services.pipanda-camera = {
-      enable = true;
-      rpicamPackage =
-        nixos-raspberrypi.packages.aarch64-linux.rpicam-apps.override {
-          withLibavEncoder = false;
-          withDrmPreview = false;
-          withEglPreview = false;
-          withQtPreview = false;
-          withOpenCVPostProc = false;
-          withIMX500 = false;
-        };
-      openFirewall = true;
-
-      # Set these if the camera is mounted upside down:
-      # horizontalFlip = true;
-      # verticalFlip = true;
-    };
-  }
-];
-```
-
-The firmware uses `camera_auto_detect=1` to load the IMX708 and autofocus VCM
-overlays. Do not add `dtoverlay=imx708` at the same time. The module reserves
-128 MiB CMA for camera, ISP and encoder buffers, leaving the rest of the 512 MiB
-for userspace.
-
-### Validate on the Pi
-
-After deploying and rebooting:
+Install on a 64-bit Raspberry Pi OS Lite system:
 
 ```sh
-pipanda-camera-test
-systemctl status go2rtc
-journalctl -u go2rtc -f
+sudo ./deploy/pi-os/install.sh
+sudo pipanda-camera-test
 ```
 
-`pipanda-camera-test` lists detected cameras, records three seconds through the
-same hardware H.264 path used in production, verifies that the output is not
-empty, and queries the local go2rtc API.
-
-From another machine on the same LAN, open:
+Then open:
 
 ```text
 http://<pi-address>:1984/stream.html?src=p1s&mode=webrtc
 ```
 
-The first request starts `rpicam-vid`, so the initial image can take a moment.
-Port 1984 has no authentication and exposes the go2rtc API; keep it on a trusted
-LAN. Do not forward it directly to the internet. Remote access should eventually
-go through the authenticated dashboard or Home Assistant.
+See [`deploy/pi-os/README.md`](deploy/pi-os/README.md) for physical setup,
+configuration, security, diagnostics and uninstall instructions.
 
 ### Why the status model is a JSON document
 

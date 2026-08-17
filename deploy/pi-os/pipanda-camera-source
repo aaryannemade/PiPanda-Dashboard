@@ -1,0 +1,84 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly CONFIG_FILE="${PIPANDA_CAMERA_CONFIG:-/etc/pipanda/camera.env}"
+
+if [[ ! -r "$CONFIG_FILE" ]]; then
+  echo "pipanda-camera: cannot read $CONFIG_FILE" >&2
+  exit 1
+fi
+
+# The file is root-owned, contains no secrets, and only supplies capture knobs.
+# shellcheck disable=SC1090 # path is configurable at runtime
+source "$CONFIG_FILE"
+
+require_uint() {
+  local name="$1"
+  local value="${!name:-}"
+
+  if [[ ! "$value" =~ ^[0-9]+$ ]] || (( value == 0 )); then
+    echo "pipanda-camera: $name must be a positive integer, got '$value'" >&2
+    exit 1
+  fi
+}
+
+require_bool() {
+  local name="$1"
+  local value="${!name:-}"
+
+  if [[ "$value" != 0 && "$value" != 1 ]]; then
+    echo "pipanda-camera: $name must be 0 or 1, got '$value'" >&2
+    exit 1
+  fi
+}
+
+for name in WIDTH HEIGHT FRAMERATE BITRATE; do
+  require_uint "$name"
+done
+require_bool HORIZONTAL_FLIP
+require_bool VERTICAL_FLIP
+
+case "${AUTOFOCUS_MODE:-}" in
+  auto|continuous|manual) ;;
+  *)
+    echo "pipanda-camera: AUTOFOCUS_MODE must be auto, continuous, or manual" >&2
+    exit 1
+    ;;
+esac
+
+if (( WIDTH > 1920 || HEIGHT > 1080 )); then
+  echo "pipanda-camera: the Pi Zero 2 W hardware encoder is limited here to 1920x1080" >&2
+  exit 1
+fi
+
+if ! command -v rpicam-vid >/dev/null 2>&1; then
+  echo "pipanda-camera: rpicam-vid is not installed" >&2
+  exit 127
+fi
+
+args=(
+  --timeout 0
+  --nopreview
+  --codec h264
+  --inline
+  --profile baseline
+  --level 4.1
+  --width "$WIDTH"
+  --height "$HEIGHT"
+  --framerate "$FRAMERATE"
+  --bitrate "$BITRATE"
+  --intra "$FRAMERATE"
+  --autofocus-mode "$AUTOFOCUS_MODE"
+  --output -
+)
+
+if [[ "$HORIZONTAL_FLIP" == 1 ]]; then
+  args+=(--hflip)
+fi
+if [[ "$VERTICAL_FLIP" == 1 ]]; then
+  args+=(--vflip)
+fi
+
+# go2rtc reads this raw Annex B H.264 stream from stdout. All diagnostics must
+# stay on stderr or they would corrupt the video stream.
+exec rpicam-vid "${args[@]}"
