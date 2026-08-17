@@ -369,7 +369,12 @@ fn cmdWatch(
             defer gpa.free(json);
             try out.print("{s}\n", .{json});
         } else {
-            try printSnapshot(out, session.status.snapshot());
+            const snapshot = session.status.snapshot();
+            // P1 reports are deltas. Do not render misleading zeroes from an
+            // early temperature-only report while the initial pushall is still
+            // in flight.
+            if (snapshot.gcode_state == null) continue;
+            try printSnapshot(out, snapshot);
         }
         try out.flush();
     }
@@ -461,7 +466,7 @@ fn printSnapshot(out: *Io.Writer, s: pipanda.printer.Snapshot) !void {
     try out.print("{s: <9}", .{s.gcode_state orelse "?"});
 
     if (s.print_percent) |pct| {
-        try out.print(" {d: >3}%", .{pct});
+        try out.print(" {d}%", .{pct});
     } else {
         try out.writeAll("    ");
     }
@@ -469,7 +474,7 @@ fn printSnapshot(out: *Io.Writer, s: pipanda.printer.Snapshot) !void {
         try out.print(" layer {d}/{d}", .{ layer, s.total_layers orelse 0 });
     }
     if (s.remaining_minutes) |mins| {
-        try out.print(" eta {d}h{d:0>2}m", .{ @divTrunc(mins, 60), @mod(mins, 60) });
+        try out.print(" eta {d}h {d}m", .{ @divTrunc(mins, 60), @mod(mins, 60) });
     }
     try out.print("  nozzle {d:.0}/{d:.0}C bed {d:.0}/{d:.0}C", .{
         s.nozzle_temp orelse 0,
@@ -477,7 +482,6 @@ fn printSnapshot(out: *Io.Writer, s: pipanda.printer.Snapshot) !void {
         s.bed_temp orelse 0,
         s.bed_target orelse 0,
     });
-    if (s.chamber_temp) |t| try out.print(" chamber {d:.0}C", .{t});
     if (s.chamber_light_on) |on| try out.print(" light {s}", .{if (on) "on" else "off"});
     if (s.active_hms_count) |count| {
         if (count > 0) try out.print("  !! {d} HMS alerts", .{count});
@@ -486,6 +490,32 @@ fn printSnapshot(out: *Io.Writer, s: pipanda.printer.Snapshot) !void {
         if (name.len > 0) try out.print("  {s}", .{name});
     }
     try out.writeByte('\n');
+}
+
+test "P1S snapshot output omits fake chamber temperature and format signs" {
+    var output: Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+
+    try printSnapshot(&output.writer, .{
+        .gcode_state = "RUNNING",
+        .print_percent = 0,
+        .remaining_minutes = 26,
+        .layer = 0,
+        .total_layers = 218,
+        .nozzle_temp = 60,
+        .nozzle_target = 75,
+        .bed_temp = 50,
+        .bed_target = 55,
+        .chamber_light_on = true,
+    });
+
+    const line = output.written();
+    try std.testing.expect(std.mem.indexOfScalar(u8, line, '+') == null);
+    try std.testing.expect(std.mem.indexOf(u8, line, "chamber") == null);
+    try std.testing.expectEqualStrings(
+        "RUNNING   0% layer 0/218 eta 0h 26m  nozzle 60/75C bed 50/55C light on\n",
+        line,
+    );
 }
 
 fn prompt(

@@ -119,7 +119,9 @@ pub const Status = struct {
             .nozzle_target = self.float("nozzle_target_temper"),
             .bed_temp = self.float("bed_temper"),
             .bed_target = self.float("bed_target_temper"),
-            .chamber_temp = self.float("chamber_temper"),
+            // P1S firmware reports chamber_temper=5 despite having no chamber
+            // probe. Preserve it in the raw document, but do not present it as
+            // a measured value in the typed snapshot.
             .cooling_fan_percent = fanPercent(self.string("cooling_fan_speed")),
             .aux_fan_percent = fanPercent(self.string("big_fan1_speed")),
             .chamber_fan_percent = fanPercent(self.string("big_fan2_speed")),
@@ -192,26 +194,25 @@ pub const Status = struct {
 };
 
 pub const Snapshot = struct {
-    gcode_state: ?[]const u8,
-    subtask_name: ?[]const u8,
-    print_percent: ?i64,
-    remaining_minutes: ?i64,
-    layer: ?i64,
-    total_layers: ?i64,
-    nozzle_temp: ?f64,
-    nozzle_target: ?f64,
-    bed_temp: ?f64,
-    bed_target: ?f64,
-    chamber_temp: ?f64,
-    cooling_fan_percent: ?u8,
-    aux_fan_percent: ?u8,
-    chamber_fan_percent: ?u8,
-    wifi_signal: ?[]const u8,
-    speed_level: ?i64,
-    print_error: ?i64,
-    chamber_light_on: ?bool,
-    active_hms_count: ?usize,
-    nozzle_diameter: ?[]const u8,
+    gcode_state: ?[]const u8 = null,
+    subtask_name: ?[]const u8 = null,
+    print_percent: ?i64 = null,
+    remaining_minutes: ?i64 = null,
+    layer: ?i64 = null,
+    total_layers: ?i64 = null,
+    nozzle_temp: ?f64 = null,
+    nozzle_target: ?f64 = null,
+    bed_temp: ?f64 = null,
+    bed_target: ?f64 = null,
+    cooling_fan_percent: ?u8 = null,
+    aux_fan_percent: ?u8 = null,
+    chamber_fan_percent: ?u8 = null,
+    wifi_signal: ?[]const u8 = null,
+    speed_level: ?i64 = null,
+    print_error: ?i64 = null,
+    chamber_light_on: ?bool = null,
+    active_hms_count: ?usize = null,
+    nozzle_diameter: ?[]const u8 = null,
 
     pub fn isPrinting(s: Snapshot) bool {
         const state = s.gcode_state orelse return false;
