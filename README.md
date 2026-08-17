@@ -26,7 +26,7 @@ Implemented so far: the backend that talks to the printer.
 | Camera Module 3 capture and WebRTC streaming | Raspberry Pi OS module done; hardware validation pending |
 | Timelapse recording | not started |
 | Home Assistant integration | not started |
-| HTTP dashboard | Zig API done; frontend not started |
+| HTTP dashboard | SolidJS device screen and Zig API implemented |
 
 ## Getting started
 
@@ -46,6 +46,7 @@ just watch              # live status, one line per update
 just watch --json       # the merged JSON status per update
 just light off          # chamber light
 just serve --lan        # frontend API on 127.0.0.1:8080
+just web                # Vite frontend on 127.0.0.1:5173
 ```
 
 Run `just` to list all development recipes. `just check` runs formatting,
@@ -103,6 +104,10 @@ src/
   net/
     mqtt.zig            minimal MQTT 3.1.1
     tls_stream.zig      TLS over TCP as a Reader/Writer pair
+frontend/
+  src/                  SolidJS dashboard and API client
+  vite.config.ts        Vite server and Zig API proxy
+  package.json          Bun-managed frontend dependencies
 deploy/pi-os/
   install.sh            Raspberry Pi OS Lite installer
   pipanda-camera-source validated rpicam-vid hardware H.264 source
@@ -149,6 +154,30 @@ It exposes the live printer, job, controls, camera and AMS data needed to build
 the Bambu Handy-style device screen. See
 [`docs/frontend-api.md`](docs/frontend-api.md) for the screenshot inventory,
 endpoint contract, capability flags and examples.
+
+## Frontend
+
+The device screen is a responsive SolidJS application styled after Bambu Handy.
+It polls the dashboard endpoint once per second, embeds the go2rtc WebRTC player,
+renders live print and AMS state, and sends chamber-light commands.
+
+Install the locked dependencies once:
+
+```sh
+just install
+```
+
+Run the API and Vite in separate terminals:
+
+```sh
+PIPANDA_PRINTER_HOST=192.168.1.50 just serve --lan
+just web
+```
+
+Open `http://127.0.0.1:5173`. Vite proxies `/api` to the Zig server on port 8080.
+Set `VITE_API_BASE` when building for a deployment where the API is on a
+different origin. `just web-check` type-checks the app and `just web-build`
+creates the production bundle in `frontend/dist`.
 
 ### Why the status model is a JSON document
 

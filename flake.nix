@@ -26,6 +26,7 @@
             pkgs.zig
             pkgs.zls
             pkgs.just
+            pkgs.bun
 
             # protocol poking: talk to the printer / cloud by hand
             pkgs.mosquitto # mosquitto_sub, mosquitto_pub
@@ -55,6 +56,7 @@
             echo "  just                            list development commands"
             echo "  just check                      run backend checks"
             echo "  just serve --lan                run the frontend API"
+            echo "  just web                        run the SolidJS frontend"
           '';
         };
       });

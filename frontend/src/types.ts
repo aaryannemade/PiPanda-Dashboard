@@ -1,0 +1,98 @@
+export interface Dashboard {
+  api_version: number;
+  printer: {
+    id: string;
+    name: string;
+    model: string;
+    online: boolean;
+    state: string | null;
+    wifi_signal: string | null;
+    error_code: number | null;
+    active_alerts: number | null;
+  };
+  camera: {
+    available: boolean;
+    player_url: string | null;
+    stream_name: string;
+  };
+  job: {
+    name: string | null;
+    profile: string | null;
+    thumbnail_url: string | null;
+    state: string | null;
+    result: "success" | "failed" | null;
+    progress_percent: number | null;
+    remaining_minutes: number | null;
+    layer: number | null;
+    total_layers: number | null;
+    actions: {
+      print_again: boolean;
+      rating: boolean;
+    };
+  };
+  controls: {
+    temperatures: {
+      nozzle: Temperature;
+      bed: Temperature;
+      chamber: Temperature;
+    };
+    fans: {
+      cooling_percent: number | null;
+      aux_percent: number | null;
+      chamber_percent: number | null;
+    };
+    light: {
+      available: boolean;
+      on: boolean | null;
+    };
+    motion: { available: boolean };
+    extruder: {
+      available: boolean;
+      nozzle_diameter: string | null;
+    };
+  };
+  filament: {
+    ams: AmsState | null;
+    external_spool: AmsTray | null;
+    library: {
+      available: boolean;
+      roll_count: number | null;
+    };
+  };
+  capabilities: {
+    light_control: boolean;
+    motion_control: boolean;
+    extruder_control: boolean;
+    print_again: boolean;
+    job_rating: boolean;
+    filament_library: boolean;
+  };
+}
+
+export interface Temperature {
+  current: number | null;
+  target: number | null;
+}
+
+export interface AmsState {
+  ams?: AmsUnit[];
+  tray_now?: string;
+  tray_pre?: string;
+  tray_tar?: string;
+}
+
+export interface AmsUnit {
+  id?: string;
+  humidity?: string | number;
+  temp?: string | number;
+  tray?: AmsTray[];
+}
+
+export interface AmsTray {
+  id?: string;
+  tray_type?: string;
+  tray_color?: string;
+  tray_sub_brands?: string;
+  remain?: number | string;
+  tray_info_idx?: string;
+}

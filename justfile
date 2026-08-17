@@ -30,8 +30,24 @@ typecheck:
 test:
     zig build test --summary all
 
-# Run the fast backend development checks.
-check: fmt-check typecheck test
+# Install frontend dependencies from the lockfile.
+install:
+    bun install --cwd frontend --frozen-lockfile
+
+# Run the SolidJS Vite development server.
+web *args:
+    bun run --cwd frontend dev {{args}}
+
+# Type-check the SolidJS frontend.
+web-check:
+    bun run --cwd frontend check
+
+# Build the production frontend bundle.
+web-build:
+    bun run --cwd frontend build
+
+# Run the fast backend and frontend development checks.
+check: fmt-check typecheck test web-check
 
 # Authenticate with Bambu Lab.
 login:
@@ -73,4 +89,4 @@ flake-check:
     nix flake check --no-build
 
 # Run the complete local validation suite.
-ci: check camera-check cross-pi flake-check
+ci: check web-build camera-check cross-pi flake-check

@@ -1,5 +1,8 @@
 .zig-cache/
 zig-out/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
 
 # Access tokens and LAN codes when PIPANDA_STATE_DIR points into the tree,
 # which is what the dev shell does.
