@@ -107,6 +107,92 @@ pub const Status = struct {
         return std.json.Stringify.valueAlloc(gpa, Value{ .object = self.fields }, .{});
     }
 
+    pub const DashboardMeta = struct {
+        device_id: []const u8,
+        name: []const u8,
+        model: []const u8,
+        camera_url: []const u8,
+        online: bool,
+    };
+
+    /// Serialises the stable, frontend-facing projection of the accumulated
+    /// printer document. Unsupported Handy cloud features are explicit so the
+    /// frontend never has to infer support from a missing value.
+    pub fn dashboardJson(
+        self: *const Status,
+        gpa: Allocator,
+        meta: DashboardMeta,
+    ) Allocator.Error![]u8 {
+        const snap = self.snapshot();
+        return std.json.Stringify.valueAlloc(gpa, .{
+            .api_version = 1,
+            .printer = .{
+                .id = meta.device_id,
+                .name = meta.name,
+                .model = meta.model,
+                .online = meta.online,
+                .state = snap.gcode_state,
+                .wifi_signal = snap.wifi_signal,
+                .error_code = snap.print_error,
+                .active_alerts = snap.active_hms_count,
+            },
+            .camera = .{
+                .available = meta.camera_url.len != 0,
+                .player_url = optionalString(meta.camera_url),
+                .stream_name = "p1s",
+            },
+            .job = .{
+                .name = snap.subtask_name,
+                .profile = @as(?[]const u8, null),
+                .thumbnail_url = @as(?[]const u8, null),
+                .state = snap.gcode_state,
+                .result = jobResult(snap.gcode_state),
+                .progress_percent = snap.print_percent,
+                .remaining_minutes = snap.remaining_minutes,
+                .layer = snap.layer,
+                .total_layers = snap.total_layers,
+                .actions = .{
+                    .print_again = false,
+                    .rating = false,
+                },
+            },
+            .controls = .{
+                .temperatures = .{
+                    .nozzle = .{ .current = snap.nozzle_temp, .target = snap.nozzle_target },
+                    .bed = .{ .current = snap.bed_temp, .target = snap.bed_target },
+                    .chamber = .{ .current = @as(?f64, null), .target = @as(?f64, null) },
+                },
+                .fans = .{
+                    .cooling_percent = snap.cooling_fan_percent,
+                    .aux_percent = snap.aux_fan_percent,
+                    .chamber_percent = snap.chamber_fan_percent,
+                },
+                .light = .{ .available = true, .on = snap.chamber_light_on },
+                .motion = .{ .available = false },
+                .extruder = .{
+                    .available = false,
+                    .nozzle_diameter = snap.nozzle_diameter,
+                },
+            },
+            .filament = .{
+                // Keep these dynamic subdocuments intact. Bambu adds fields to
+                // AMS trays across firmware versions and the frontend can use
+                // the documented common fields without losing newer ones.
+                .ams = self.valueOrNull("ams"),
+                .external_spool = self.valueOrNull("vt_tray"),
+                .library = .{ .available = false, .roll_count = @as(?usize, null) },
+            },
+            .capabilities = .{
+                .light_control = true,
+                .motion_control = false,
+                .extruder_control = false,
+                .print_again = false,
+                .job_rating = false,
+                .filament_library = false,
+            },
+        }, .{});
+    }
+
     pub fn snapshot(self: *const Status) Snapshot {
         return .{
             .gcode_state = self.string("gcode_state"),
@@ -167,6 +253,10 @@ pub const Status = struct {
         };
     }
 
+    fn valueOrNull(self: *const Status, name: []const u8) Value {
+        return self.fields.get(name) orelse .null;
+    }
+
     /// `lights_report` is an array of `{ node, mode }` pairs.
     fn lightOn(self: *const Status, node: []const u8) ?bool {
         const list = switch (self.fields.get("lights_report") orelse return null) {
@@ -192,6 +282,17 @@ pub const Status = struct {
         return null;
     }
 };
+
+fn optionalString(value: []const u8) ?[]const u8 {
+    return if (value.len == 0) null else value;
+}
+
+fn jobResult(state: ?[]const u8) ?[]const u8 {
+    const value = state orelse return null;
+    if (std.mem.eql(u8, value, "FINISH")) return "success";
+    if (std.mem.eql(u8, value, "FAILED")) return "failed";
+    return null;
+}
 
 pub const Snapshot = struct {
     gcode_state: ?[]const u8 = null,
@@ -328,4 +429,37 @@ test fanPercent {
     try std.testing.expectEqual(@as(u8, 50), fanPercent("127").?);
     try std.testing.expect(fanPercent(null) == null);
     try std.testing.expect(fanPercent("") == null);
+}
+
+test "dashboard projection exposes supported and unavailable Handy fields" {
+    var status = try Status.init(std.testing.allocator);
+    defer status.deinit();
+
+    _ = try status.apply(
+        \\{"print":{"gcode_state":"FINISH","subtask_name":"Benchy","mc_percent":100,
+        \\ "nozzle_temper":38,"nozzle_target_temper":0,"lights_report":[{"node":"chamber_light","mode":"on"}],
+        \\ "ams":{"tray_now":"0","ams":[{"id":"0","humidity":"3","tray":[{"id":"0","tray_type":"PLA","tray_color":"FF6A00FF"}]}]}}}
+    );
+
+    const json = try status.dashboardJson(std.testing.allocator, .{
+        .device_id = "01P00A",
+        .name = "Panda",
+        .model = "P1S",
+        .camera_url = "/camera/p1s",
+        .online = true,
+    });
+    defer std.testing.allocator.free(json);
+
+    const parsed = try std.json.parseFromSlice(Value, std.testing.allocator, json, .{});
+    defer parsed.deinit();
+    const root = parsed.value.object;
+    try std.testing.expectEqualStrings("Panda", root.get("printer").?.object.get("name").?.string);
+    try std.testing.expectEqualStrings("success", root.get("job").?.object.get("result").?.string);
+    try std.testing.expect(root.get("controls").?.object.get("light").?.object.get("on").?.bool);
+    try std.testing.expect(!root.get("capabilities").?.object.get("motion_control").?.bool);
+    try std.testing.expectEqualStrings(
+        "PLA",
+        root.get("filament").?.object.get("ams").?.object.get("ams").?.array.items[0].object
+            .get("tray").?.array.items[0].object.get("tray_type").?.string,
+    );
 }

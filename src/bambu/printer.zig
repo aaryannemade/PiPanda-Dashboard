@@ -45,6 +45,8 @@ pub const Session = struct {
     /// Topics, built once at connect time.
     report_topic: []const u8,
     request_topic: []const u8,
+    status_mutex: Io.Mutex,
+    command_mutex: Io.Mutex,
     sequence_id: u32 = 1,
     /// Scratch for rendering `sequence_id`, so callers do not have to manage an
     /// allocation for every command.
@@ -109,6 +111,8 @@ pub const Session = struct {
             .status = try Status.init(gpa),
             .report_topic = report_topic,
             .request_topic = request_topic,
+            .status_mutex = .init,
+            .command_mutex = .init,
         };
         errdefer self.status.deinit();
 
@@ -153,6 +157,8 @@ pub const Session = struct {
                 sink.flush() catch {};
             }
 
+            self.status_mutex.lock(self.io) catch return error.Canceled;
+            defer self.status_mutex.unlock(self.io);
             return switch (try self.status.apply(message.payload)) {
                 .print => .status_updated,
                 .other => .other_report,
@@ -173,6 +179,8 @@ pub const Session = struct {
     /// on a P1: the MCU is slow enough that serialising the whole document
     /// visibly stutters a print.
     pub fn requestFullStatus(self: *Session) CommandError!void {
+        self.command_mutex.lock(self.io) catch return error.Canceled;
+        defer self.command_mutex.unlock(self.io);
         try self.sendCommand(.{ .pushing = .{
             .sequence_id = self.takeSequenceId(),
             .command = "pushall",
@@ -186,6 +194,8 @@ pub const Session = struct {
     /// Chamber light control. This is the hook the Home Assistant side will use
     /// to keep the printer light in sync with the room lights.
     pub fn setChamberLight(self: *Session, mode: LedMode) CommandError!void {
+        self.command_mutex.lock(self.io) catch return error.Canceled;
+        defer self.command_mutex.unlock(self.io);
         try self.sendCommand(.{
             .system = .{
                 .sequence_id = self.takeSequenceId(),
@@ -205,11 +215,29 @@ pub const Session = struct {
     /// footage from the Pi camera, so this is mainly here to turn Bambu's
     /// version off.
     pub fn setPrinterTimelapse(self: *Session, enabled: bool) CommandError!void {
+        self.command_mutex.lock(self.io) catch return error.Canceled;
+        defer self.command_mutex.unlock(self.io);
         try self.sendCommand(.{ .camera = .{
             .sequence_id = self.takeSequenceId(),
             .command = "ipcam_timelapse",
             .control = if (enabled) "enable" else "disable",
         } });
+    }
+
+    pub fn statusJson(self: *Session, gpa: Allocator) ![]u8 {
+        self.status_mutex.lock(self.io) catch return error.Canceled;
+        defer self.status_mutex.unlock(self.io);
+        return self.status.toJson(gpa);
+    }
+
+    pub fn dashboardJson(
+        self: *Session,
+        gpa: Allocator,
+        meta: Status.DashboardMeta,
+    ) ![]u8 {
+        self.status_mutex.lock(self.io) catch return error.Canceled;
+        defer self.status_mutex.unlock(self.io);
+        return self.status.dashboardJson(gpa, meta);
     }
 
     fn sendCommand(self: *Session, payload: anytype) CommandError!void {

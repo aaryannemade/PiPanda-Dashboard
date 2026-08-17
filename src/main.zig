@@ -5,6 +5,7 @@
 //!   pipanda use <device-id>          select the printer to watch
 //!   pipanda watch [--lan]            stream live status from the printer
 //!   pipanda light <on|off>           set the chamber light
+//!   pipanda serve [--lan]            run the dashboard HTTP API
 
 const std = @import("std");
 const Io = std.Io;
@@ -22,6 +23,7 @@ const usage =
     \\  use <device-id>  remember which printer to talk to
     \\  watch            stream live printer status
     \\  light <on|off>   set the chamber light
+    \\  serve            run the dashboard HTTP API
     \\
     \\options:
     \\  --code           log in with an emailed code instead of a password
@@ -29,6 +31,8 @@ const usage =
     \\  --lan            talk to the printer directly instead of via the cloud
     \\  --json           emit the merged JSON status per update (watch only)
     \\  --raw            emit each raw report payload verbatim (watch only)
+    \\  --bind <address> bind address for serve (default: 127.0.0.1)
+    \\  --port <number>  HTTP port for serve (default: 8080)
     \\  --verbose        log protocol steps to stderr; credentials are redacted
     \\
     \\state is kept in $PIPANDA_STATE_DIR, else $XDG_STATE_HOME/pipanda.
@@ -58,7 +62,22 @@ pub fn main(init: std.process.Init) !void {
         .dir = try pipanda.credentials.Store.resolveDir(arena, init.environ_map),
     };
 
-    var opts: Options = .{ .printer_host = init.environ_map.get("PIPANDA_PRINTER_HOST") };
+    const is_serve = std.mem.eql(u8, args[1], "serve");
+    var opts: Options = .{
+        .printer_host = init.environ_map.get("PIPANDA_PRINTER_HOST"),
+        .api_host = init.environ_map.get("PIPANDA_HTTP_HOST") orelse "127.0.0.1",
+        .api_port = if (is_serve)
+            if (init.environ_map.get("PIPANDA_HTTP_PORT")) |value|
+                std.fmt.parseInt(u16, value, 10) catch invalidPort(value)
+            else
+                8080
+        else
+            8080,
+        .printer_name = init.environ_map.get("PIPANDA_PRINTER_NAME") orelse "Panda",
+        .printer_model = init.environ_map.get("PIPANDA_PRINTER_MODEL") orelse "P1S",
+        .camera_url = init.environ_map.get("PIPANDA_CAMERA_URL") orelse
+            "http://127.0.0.1:1984/stream.html?src=p1s&mode=webrtc",
+    };
     var positional: std.ArrayList([]const u8) = .empty;
     var i: usize = 2;
     while (i < args.len) : (i += 1) {
@@ -77,9 +96,17 @@ pub fn main(init: std.process.Init) !void {
             i += 1;
             if (i >= args.len) return error.MissingRegionValue;
             opts.region = if (std.mem.eql(u8, args[i], "china")) .china else .global;
+        } else if (std.mem.eql(u8, arg, "--bind")) {
+            i += 1;
+            if (i >= args.len) invalidOption("--bind requires an IP address");
+            opts.api_host = args[i];
+        } else if (std.mem.eql(u8, arg, "--port")) {
+            i += 1;
+            if (i >= args.len) invalidOption("--port requires a port number");
+            opts.api_port = std.fmt.parseInt(u16, args[i], 10) catch invalidPort(args[i]);
         } else if (std.mem.startsWith(u8, arg, "-")) {
             std.log.err("unknown option: {s}", .{arg});
-            return error.UnknownOption;
+            std.process.exit(2);
         } else {
             try positional.append(arena, arg);
         }
@@ -96,6 +123,8 @@ pub fn main(init: std.process.Init) !void {
         cmdWatch(gpa, arena, io, out, store, opts)
     else if (std.mem.eql(u8, command, "light"))
         cmdLight(gpa, arena, io, out, store, opts, positional.items)
+    else if (std.mem.eql(u8, command, "serve"))
+        cmdServe(gpa, arena, io, store, opts, positional.items)
     else {
         std.log.err("unknown command: {s}", .{command});
         try out.writeAll(usage);
@@ -144,6 +173,7 @@ fn userMessage(err: anyerror) ?[]const u8 {
 
         error.ExpectedDeviceId => "usage: pipanda use <device-id>",
         error.ExpectedOnOff => "usage: pipanda light <on|off|flashing>",
+        error.UnexpectedServeArgument => "usage: pipanda serve [--lan] [--bind <address>] [--port <number>]",
         error.EmptyCredentials => "",
         error.UnexpectedEndOfInput => "input ended before the prompt was answered",
 
@@ -157,6 +187,16 @@ fn isHelp(arg: []const u8) bool {
         std.mem.eql(u8, arg, "help");
 }
 
+fn invalidOption(message: []const u8) noreturn {
+    std.log.err("{s}", .{message});
+    std.process.exit(2);
+}
+
+fn invalidPort(value: []const u8) noreturn {
+    std.log.err("invalid HTTP port '{s}'; expected a number from 0 to 65535", .{value});
+    std.process.exit(2);
+}
+
 const Options = struct {
     region: pipanda.cloud.Region = .global,
     lan: bool = false,
@@ -166,6 +206,11 @@ const Options = struct {
     code_login: bool = false,
     /// Printer address for `--lan`, from `$PIPANDA_PRINTER_HOST`.
     printer_host: ?[]const u8 = null,
+    api_host: []const u8 = "127.0.0.1",
+    api_port: u16 = 8080,
+    printer_name: []const u8 = "Panda",
+    printer_model: []const u8 = "P1S",
+    camera_url: []const u8 = "",
 };
 
 fn cmdLogin(
@@ -407,6 +452,27 @@ fn cmdLight(
     try session.setChamberLight(mode);
     try out.print("Chamber light: {s}\n", .{@tagName(mode)});
     try out.flush();
+}
+
+fn cmdServe(
+    gpa: Allocator,
+    arena: Allocator,
+    io: Io,
+    store: pipanda.credentials.Store,
+    opts: Options,
+    args: []const []const u8,
+) !void {
+    if (args.len != 0) return error.UnexpectedServeArgument;
+    const session = try openSession(gpa, arena, io, store, opts);
+    defer session.close();
+
+    try pipanda.api.serve(gpa, io, session, .{
+        .host = opts.api_host,
+        .port = opts.api_port,
+        .printer_name = opts.printer_name,
+        .printer_model = opts.printer_model,
+        .camera_url = opts.camera_url,
+    });
 }
 
 fn openSession(

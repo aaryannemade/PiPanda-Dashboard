@@ -5,8 +5,8 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // Core library: bambu cloud auth, MQTT transport, printer state model.
-    // Kept separate from the CLI so the future HTTP/websocket dashboard can
-    // embed it without dragging the CLI along.
+    // Kept separate from the CLI so the HTTP dashboard and future integrations
+    // can embed it without dragging the CLI along.
     const pipanda = b.addModule("pipanda", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,

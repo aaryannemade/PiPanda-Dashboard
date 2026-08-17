@@ -26,7 +26,7 @@ Implemented so far: the backend that talks to the printer.
 | Camera Module 3 capture and WebRTC streaming | Raspberry Pi OS module done; hardware validation pending |
 | Timelapse recording | not started |
 | Home Assistant integration | not started |
-| HTTP dashboard | not started |
+| HTTP dashboard | Zig API done; frontend not started |
 
 ## Getting started
 
@@ -45,6 +45,7 @@ zig build run -- use <id>       # only needed if the account has several printer
 zig build run -- watch          # live status, one line per update
 zig build run -- watch --json   # the merged JSON status per update
 zig build run -- light off      # chamber light
+zig build run -- serve --lan    # frontend API on 127.0.0.1:8080
 ```
 
 Add `--verbose` to any command to log protocol steps to stderr. Credentials are
@@ -87,6 +88,7 @@ No C dependencies, so this is a plain `zig build` with a target flag. Use
 
 ```
 src/
+  api.zig               frontend HTTP API and server
   main.zig              CLI
   root.zig              the `pipanda` module, for other consumers
   bambu/
@@ -106,8 +108,8 @@ deploy/pi-os/
 
 ## Camera on Raspberry Pi OS Lite
 
-The `pi-os-native` branch uses Raspberry Pi OS Lite as the deployment base. Nix
-is only a development environment and is not required on the Pi.
+The project uses Raspberry Pi OS Lite as the deployment base. Nix is only a
+development environment and is not required on the Pi.
 
 The live path uses the Zero 2 W's hardware H.264 encoder and does not transcode:
 
@@ -130,6 +132,19 @@ http://<pi-address>:1984/stream.html?src=p1s&mode=webrtc
 
 See [`deploy/pi-os/README.md`](deploy/pi-os/README.md) for physical setup,
 configuration, security, diagnostics and uninstall instructions.
+
+## Dashboard API
+
+Run the Zig HTTP backend after logging in and selecting a printer:
+
+```sh
+zig build run -- serve --lan
+```
+
+It exposes the live printer, job, controls, camera and AMS data needed to build
+the Bambu Handy-style device screen. See
+[`docs/frontend-api.md`](docs/frontend-api.md) for the screenshot inventory,
+endpoint contract, capability flags and examples.
 
 ### Why the status model is a JSON document
 
