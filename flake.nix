@@ -3,10 +3,22 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    # Vendor kernel, firmware, libcamera and rpicam-apps. The older
+    # nix-community/raspberry-pi-nix project is archived; this is its active
+    # successor.
+    nixos-raspberrypi = {
+      url = "github:nvmd/nixos-raspberrypi/main";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      nixos-raspberrypi,
+    }:
     let
       systems = [
         "x86_64-linux"
@@ -17,6 +29,44 @@
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
+      nixosModules = {
+        pipanda-camera = import ./nix/modules/camera.nix;
+        pi-zero-2-camera = import ./nix/modules/pi-zero-2-camera.nix;
+      };
+
+      # A camera-capable Pi Zero 2 W system closure. Network credentials,
+      # users/SSH keys and the pipanda daemon itself stay in the host-specific
+      # deployment module; this host is useful now for evaluation and for
+      # deploying the camera module onto an existing NixOS Pi.
+      nixosConfigurations.pipanda-pi = nixos-raspberrypi.lib.nixosSystem {
+        inherit nixpkgs;
+        modules = [
+          nixos-raspberrypi.nixosModules.raspberry-pi-02.base
+          self.nixosModules.pi-zero-2-camera
+          self.nixosModules.pipanda-camera
+          {
+            networking.hostName = "pipanda";
+            fileSystems."/" = {
+              device = "/dev/disk/by-label/NIXOS_SD";
+              fsType = "ext4";
+            };
+            services.pipanda-camera = {
+              enable = true;
+              rpicamPackage = nixos-raspberrypi.packages.aarch64-linux.rpicam-apps.override {
+                withLibavEncoder = false;
+                withDrmPreview = false;
+                withEglPreview = false;
+                withQtPreview = false;
+                withOpenCVPostProc = false;
+                withIMX500 = false;
+              };
+              openFirewall = true;
+            };
+            system.stateVersion = "26.05";
+          }
+        ];
+      };
+
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           name = "pipanda-dev";
