@@ -5,7 +5,9 @@ service_was_active=0
 output=""
 
 # Called indirectly by the EXIT trap.
-# shellcheck disable=SC2329
+# ShellCheck versions disagree on whether an EXIT trap counts as a direct call:
+# SC2329 marks the function unused, while SC2317 marks its body unreachable.
+# shellcheck disable=SC2317,SC2329
 cleanup() {
   if [[ -n "$output" ]]; then
     rm -f "$output"
