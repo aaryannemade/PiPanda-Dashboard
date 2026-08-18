@@ -9,6 +9,45 @@ interface CameraCardProps {
   connecting: boolean;
 }
 
+function fittedPlayerUrl(url: string): string {
+  const player = new URL(url, window.location.href);
+  player.searchParams.set("width", "100%");
+  return player.toString();
+}
+
+function fitEmbeddedPlayer(frame: HTMLIFrameElement): void {
+  try {
+    const document = frame.contentDocument;
+    if (!document || document.getElementById("pipanda-camera-fit")) return;
+
+    const style = document.createElement("style");
+    style.id = "pipanda-camera-fit";
+    style.textContent = `
+      html, body {
+        width: 100% !important;
+        height: 100% !important;
+        overflow: hidden !important;
+      }
+      body {
+        display: block !important;
+      }
+      video-stream {
+        display: block !important;
+        width: 100% !important;
+        height: 100% !important;
+      }
+      video-stream video {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important;
+      }
+    `;
+    document.head.append(style);
+  } catch {
+    // Direct go2rtc development URLs may be cross-origin and cannot be styled.
+  }
+}
+
 export function CameraCard(props: CameraCardProps) {
   return (
     <article class="camera-panel">
@@ -26,10 +65,11 @@ export function CameraCard(props: CameraCardProps) {
         >
           {(url) => (
             <iframe
-              src={url() ?? undefined}
+              src={fittedPlayerUrl(url())}
               title={`${props.printerName} live camera`}
               allow="autoplay; fullscreen"
               loading="eager"
+              onLoad={(event) => fitEmbeddedPlayer(event.currentTarget)}
             />
           )}
         </Show>
