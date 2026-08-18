@@ -124,24 +124,96 @@ installer containing the static Zig backend, compiled frontend, go2rtc, camera
 helpers, nginx configuration and systemd services. Zig, Bun, Node.js and Nix are
 not required on the Pi.
 
+### Prerequisites
+
+- Raspberry Pi Zero 2 W running **64-bit** Raspberry Pi OS Lite
+- Working network connection, DNS and system clock
+- Wi-Fi and SSH configured
+- Camera Module 3 connected with the correct 15-to-22-pin CSI cable, if camera
+  support is wanted
+- Internet access during installation so apt can install nginx and rpicam tools
+
 The live path uses the Zero 2 W's hardware H.264 encoder and does not transcode:
 
 ```text
 Camera Module 3 -> rpicam-vid -> go2rtc -> WebRTC
 ```
 
-Download the `.run` file and checksum from a GitHub Release, then install:
+### Generate a release
+
+1. Open this repository on GitHub and select **Actions**.
+2. Select **Build Raspberry Pi installer**.
+3. Select **Run workflow**.
+4. Enter a semantic version such as `0.2.0` and start the workflow.
+5. Download the `.run` installer and `.sha256` checksum from the resulting
+   GitHub Release or workflow artifact.
+
+The workflow also generates `pipanda-VERSION-CHANGELOG.md` from commits since
+the previous version tag.
+
+### Install on the Pi
+
+Download a release directly on the Pi by replacing the version below:
 
 ```sh
-sha256sum --check pipanda-0.2.0-aarch64.run.sha256
-chmod +x pipanda-0.2.0-aarch64.run
-sudo ./pipanda-0.2.0-aarch64.run
+VERSION=0.2.0
+curl -fLO "https://github.com/aaryannemade/pipanda-dashboard/releases/download/v${VERSION}/pipanda-${VERSION}-aarch64.run"
+curl -fLO "https://github.com/aaryannemade/pipanda-dashboard/releases/download/v${VERSION}/pipanda-${VERSION}-aarch64.run.sha256"
+```
+
+Verify and run it:
+
+```sh
+sha256sum --check "pipanda-${VERSION}-aarch64.run.sha256"
+chmod +x "pipanda-${VERSION}-aarch64.run"
+sudo "./pipanda-${VERSION}-aarch64.run"
+```
+
+The installer installs required Raspberry Pi OS packages, deploys all PiPanda
+files, enables the services, and checks the frontend and backend before
+reporting success.
+
+Verify the installation:
+
+```sh
+systemctl status pipanda.service pipanda-camera.service nginx.service
+curl http://127.0.0.1/api/v1/health
 sudo pipanda-camera-test
 ```
 
-Open `http://<pi-address>/`, use Settings to sign in, and optionally select the
-printer. Configuration lives in `/etc/pipanda`; credentials persist under
+Run the camera test with no browser stream open. Then visit
+`http://<pi-address>/` or `http://<hostname>.local/`, open **Settings**, and sign
+in to Bambu Lab. The default cloud transport does not require the printer's IP.
+
+### Use LAN transport
+
+Give the printer a stable DHCP lease and edit `/etc/pipanda/pipanda.env`:
+
+```sh
+PIPANDA_TRANSPORT=lan
+PIPANDA_PRINTER_HOST=192.168.1.50
+```
+
+Apply the change:
+
+```sh
+sudo systemctl restart pipanda.service
+```
+
+Use `PIPANDA_TRANSPORT=cloud` to switch back. Configuration lives under
+`/etc/pipanda`; credentials and the selected printer persist under
 `/var/lib/pipanda`.
+
+### Upgrade or uninstall
+
+To upgrade, download a newer release and run its installer using the same
+commands. Configuration and credentials are preserved.
+
+To remove the installed services and application files:
+
+```sh
+sudo pipanda-uninstall
+```
 
 See [`deploy/pi-os/README.md`](deploy/pi-os/README.md) for release generation,
 physical setup, cloud/LAN configuration, upgrades, security, diagnostics and
