@@ -83,7 +83,7 @@ camera-check:
 
 # Cross-compile a static ReleaseSafe binary for the 64-bit Pi Zero 2 W.
 cross-pi:
-    zig build -Dtarget=aarch64-linux-musl -Dcpu=cortex_a53 -Doptimize=ReleaseSafe
+    zig build -Dtarget=aarch64-linux-musl -Dcpu=baseline -Doptimize=ReleaseSafe
 
 # Evaluate all flake outputs without building them.
 flake-check:

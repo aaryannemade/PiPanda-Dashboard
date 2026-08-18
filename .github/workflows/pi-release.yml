@@ -78,8 +78,20 @@ jobs:
         run: >-
           zig build
           -Dtarget=aarch64-linux-musl
-          -Dcpu=cortex_a53
+          -Dcpu=baseline
           -Doptimize=ReleaseSafe
+
+      - name: Reject unsupported ARM crypto instructions
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends binutils-aarch64-linux-gnu
+          if aarch64-linux-gnu-objdump -d zig-out/bin/pipanda | \
+            awk '$3 ~ /^(aes|sha|pmull)/ { found=1 } END { exit !found }'; then
+            echo "Release binary contains optional ARM crypto instructions unsupported by Pi Zero 2 W" >&2
+            exit 1
+          fi
 
       - name: Download verified go2rtc
         shell: bash

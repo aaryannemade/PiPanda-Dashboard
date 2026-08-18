@@ -29,12 +29,15 @@ The manually triggered workflow:
 
 1. Runs Zig, TypeScript, shell and deployment checks.
 2. Builds the frontend with its locked Bun dependencies.
-3. Cross-compiles a static `aarch64-linux-musl` backend for Cortex-A53.
+3. Cross-compiles a static `aarch64-linux-musl` backend using the conservative
+   AArch64 baseline required by the Pi Zero 2 W.
 4. Downloads go2rtc ARM64 and verifies its pinned SHA-256 digest.
-5. Generates release notes from commits since the previous version tag.
-6. Builds and stage-tests a self-extracting installer.
-7. Produces the installer, checksum and changelog as a workflow artifact.
-8. Creates or updates the matching `vVERSION` GitHub Release.
+5. Rejects binaries containing optional ARM crypto instructions that cause
+   `SIGILL` on this Pi.
+6. Generates release notes from commits since the previous version tag.
+7. Builds and stage-tests a self-extracting installer.
+8. Produces the installer, checksum and changelog as a workflow artifact.
+9. Creates or updates the matching `vVERSION` GitHub Release.
 
 Release files:
 

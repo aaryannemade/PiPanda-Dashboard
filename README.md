@@ -83,8 +83,8 @@ dial. Cloud mode is fully verified against the system CA bundle.
 ### Cross-compiling for the Pi
 
 ```sh
-zig build -Dtarget=aarch64-linux-gnu   -Dcpu=cortex_a53 -Doptimize=ReleaseSafe  # 64-bit Pi OS
-zig build -Dtarget=arm-linux-gnueabihf -Dcpu=cortex_a53 -Doptimize=ReleaseSafe  # 32-bit Pi OS
+zig build -Dtarget=aarch64-linux-gnu   -Dcpu=baseline -Doptimize=ReleaseSafe  # 64-bit Pi OS
+zig build -Dtarget=arm-linux-gnueabihf -Dcpu=baseline -Doptimize=ReleaseSafe  # 32-bit Pi OS
 ```
 
 No C dependencies, so this is a plain `zig build` with a target flag. Use
