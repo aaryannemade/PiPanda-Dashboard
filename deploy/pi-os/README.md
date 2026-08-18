@@ -1,155 +1,198 @@
-# Raspberry Pi OS Lite camera module
+# Raspberry Pi OS Lite deployment
 
-This module targets a Raspberry Pi Zero 2 W running **64-bit Raspberry Pi OS
-Lite** with a Camera Module 3. Nix is only used on the development workstation;
-the Pi uses native Debian packages, systemd and files under `/usr/local`.
+PiPanda targets a Raspberry Pi Zero 2 W running **64-bit Raspberry Pi OS
+Lite**. The release installer contains the static ARM64 backend, compiled
+SolidJS frontend, go2rtc, deployment scripts, systemd units and nginx site. The
+Pi does not need Zig, Bun, Node.js, Nix or a repository checkout.
 
-## Pipeline
+## Runtime layout
 
 ```text
-Camera Module 3
-  -> rpicam-vid (hardware H.264)
-  -> stdout pipe
-  -> go2rtc
-  -> WebRTC browser / Home Assistant
+Browser -> nginx :80
+             |-- /          static SolidJS build
+             |-- /api/      Zig API on 127.0.0.1:8080
+             `-- /camera/   go2rtc signaling on 127.0.0.1:1984
+
+pipanda.service        Bambu cloud/LAN MQTT and dashboard API
+pipanda-camera.service go2rtc -> rpicam-vid -> Camera Module 3
 ```
 
-go2rtc starts `rpicam-vid` when the first viewer connects and stops it when the
-last viewer leaves. It fans one camera capture out to multiple consumers, so a
-future dashboard, Home Assistant and recorder do not compete for the camera.
+WebRTC media travels directly between go2rtc and the browser on TCP/UDP 8555.
+The camera is encoded by the Pi's H.264 hardware path and is not transcoded.
 
-Defaults:
+## Build a release
 
-- 1920x1080 at 30 fps
-- H.264 baseline at 4 Mbit/s
-- one-second keyframe interval with inline SPS/PPS
-- continuous Camera Module 3 autofocus
-- HTTP API and test viewer on TCP 1984
-- WebRTC media on TCP/UDP 8555
-- RTSP on localhost:8554 for future recording
+Open the repository's **Actions** tab, select **Build Raspberry Pi installer**,
+choose **Run workflow**, and enter a semantic version such as `0.2.0`.
 
-There is no decode or transcode in the live path.
+The manually triggered workflow:
 
-## Physical setup
+1. Runs Zig, TypeScript, shell and deployment checks.
+2. Builds the frontend with its locked Bun dependencies.
+3. Cross-compiles a static `aarch64-linux-musl` backend for Cortex-A53.
+4. Downloads go2rtc ARM64 and verifies its pinned SHA-256 digest.
+5. Generates release notes from commits since the previous version tag.
+6. Builds and stage-tests a self-extracting installer.
+7. Produces the installer, checksum and changelog as a workflow artifact.
+8. Creates or updates the matching `vVERSION` GitHub Release.
 
-1. Shut the Pi down and remove power.
-2. Connect the Camera Module 3 to the Zero 2 W's narrow 22-pin CSI connector.
-   A normal Camera Module 3 needs the correct 15-to-22-pin camera cable.
-3. Confirm the contacts face the correct direction before closing both latches.
-4. Boot the latest 64-bit Raspberry Pi OS Lite and complete Wi-Fi/SSH setup.
+Release files:
 
-Official cameras are detected automatically by current Raspberry Pi firmware.
-Do not enable the legacy camera stack or add `start_x=1`.
+```text
+pipanda-0.2.0-aarch64.run
+pipanda-0.2.0-aarch64.run.sha256
+pipanda-0.2.0-CHANGELOG.md
+```
+
+The generated changelog is a release artifact and GitHub Release description;
+the workflow does not create an automated commit on the source branch.
 
 ## Install
 
-On the Pi, from the repository checkout:
+Prepare the latest 64-bit Raspberry Pi OS Lite, Wi-Fi and SSH. Copy the `.run`
+file and checksum from the GitHub Release to the Pi, then run:
 
 ```sh
-cd pipanda-dashboard
-sudo ./deploy/pi-os/install.sh
+sha256sum --check pipanda-0.2.0-aarch64.run.sha256
+chmod +x pipanda-0.2.0-aarch64.run
+sudo ./pipanda-0.2.0-aarch64.run
 ```
 
 The installer:
 
-1. Installs `rpicam-apps-lite` (or `rpicam-apps` on older releases), curl and CA
-   certificates with apt.
-2. Downloads go2rtc v1.9.14 for the detected ARM architecture.
-3. Verifies the binary against its SHA-256 digest published by GitHub Releases.
-4. Installs the source wrapper, configuration and systemd unit.
-5. Enables and starts `pipanda-camera.service`.
+1. Rejects non-ARM64 systems.
+2. Installs nginx, CA certificates, curl and `rpicam-apps-lite` (falling back to
+   `rpicam-apps`) through apt.
+3. Installs the backend, frontend, go2rtc, camera helpers and service units.
+4. Preserves existing configuration and credentials during upgrades.
+5. Enables and starts nginx, `pipanda.service` and
+   `pipanda-camera.service`.
+6. Checks the frontend and backend health endpoint before reporting success.
 
-Re-running the installer upgrades managed files but preserves
-`/etc/pipanda/camera.env`.
+Open `http://<pi-address>/` or `http://<hostname>.local/`, select **Settings**,
+and sign in to Bambu Lab. The backend starts without credentials, so no CLI
+login is required before the dashboard opens.
 
-## Validate
+## Configuration
 
-Close any open stream and run:
+Dashboard configuration is stored in `/etc/pipanda/pipanda.env`:
+
+```sh
+PIPANDA_HTTP_HOST=127.0.0.1
+PIPANDA_HTTP_PORT=8080
+PIPANDA_PRINTER_NAME=Panda
+PIPANDA_PRINTER_MODEL=P1S
+PIPANDA_CAMERA_URL="/camera/stream.html?src=p1s&mode=webrtc"
+PIPANDA_TRANSPORT=cloud
+```
+
+Cloud transport needs no printer address. To use local MQTT, give the printer a
+stable DHCP lease and configure:
+
+```sh
+PIPANDA_TRANSPORT=lan
+PIPANDA_PRINTER_HOST=192.168.1.50
+```
+
+Then restart the backend:
+
+```sh
+sudo systemctl restart pipanda.service
+```
+
+Credentials and the selected printer are stored under `/var/lib/pipanda` by
+systemd's `StateDirectory`. They are readable only by the dynamic service user
+and persist across upgrades.
+
+## Camera setup
+
+Shut the Pi down before connecting the Camera Module 3 to the Zero 2 W's narrow
+22-pin CSI connector. A standard module needs the correct 15-to-22-pin cable.
+Current Raspberry Pi OS detects official cameras automatically; do not enable
+the legacy camera stack or add `start_x=1`.
+
+Defaults are 1920x1080 at 30 fps, H.264 baseline at 4 Mbit/s, one-second
+keyframes and continuous autofocus. Tune `/etc/pipanda/camera.env`:
+
+```sh
+WIDTH=1920
+HEIGHT=1080
+FRAMERATE=30
+BITRATE=4000000
+AUTOFOCUS_MODE=continuous
+HORIZONTAL_FLIP=0
+VERTICAL_FLIP=0
+```
+
+Restart after editing:
+
+```sh
+sudo systemctl restart pipanda-camera.service
+```
+
+The hardware encoder path intentionally rejects dimensions above 1920x1080.
+
+## Validate and diagnose
+
+Run the camera hardware test with no browser stream open:
 
 ```sh
 sudo pipanda-camera-test
 ```
 
-The diagnostic stops the service temporarily, lists detected cameras, captures
-four seconds through the exact production wrapper, verifies non-empty H.264,
-restarts go2rtc, and checks its local API.
-
-Then open this from another device on the same LAN:
-
-```text
-http://<pi-address>:1984/stream.html?src=p1s&mode=webrtc
-```
-
-The first connection starts the camera, so the image can take a moment to
-appear.
-
-Useful diagnostics:
+Service status and logs:
 
 ```sh
-systemctl status pipanda-camera.service
+systemctl status pipanda.service pipanda-camera.service nginx.service
+journalctl -u pipanda.service -f
 journalctl -u pipanda-camera.service -f
+curl http://127.0.0.1/api/v1/health
 rpicam-hello --list-cameras
 ```
 
-## Tune
+Required LAN ports:
 
-Edit `/etc/pipanda/camera.env`:
+| Port | Protocol | Purpose |
+| --- | --- | --- |
+| 80 | TCP | Dashboard, API and camera signaling through nginx |
+| 8555 | TCP/UDP | Direct WebRTC media |
 
-```sh
-sudoedit /etc/pipanda/camera.env
-sudo systemctl restart pipanda-camera.service
-```
+go2rtc's API binds only to `127.0.0.1:1984`; nginx is the public signaling
+entry point. The Zig backend also binds only to loopback. The dashboard still
+does not implement user access control, so expose port 80 only on a trusted LAN
+or place it behind an authenticated reverse proxy/VPN.
 
-Available settings:
+## Upgrade
 
-```text
-WIDTH=1920
-HEIGHT=1080
-FRAMERATE=30
-BITRATE=4000000
-AUTOFOCUS_MODE=continuous  # auto, continuous, manual
-HORIZONTAL_FLIP=0          # 0 or 1
-VERTICAL_FLIP=0            # 0 or 1
-```
-
-The wrapper rejects dimensions above 1920x1080 for this hardware encoder path.
-Set both flips to `1` if the module is mounted upside down.
-
-## Service layout
+Download and run a newer installer exactly as for the first installation. It
+replaces versioned binaries, frontend assets and managed service configuration,
+while preserving:
 
 ```text
+/etc/pipanda/pipanda.env
 /etc/pipanda/camera.env
-/etc/pipanda/go2rtc.yaml
-/etc/systemd/system/pipanda-camera.service
-/usr/local/bin/go2rtc
-/usr/local/bin/pipanda-camera-test
-/usr/local/libexec/pipanda-camera-source
+/var/lib/pipanda/credentials.json
 ```
-
-The service uses a transient systemd user with access to the `video` and
-`render` groups. It has no login shell, no permanent credentials and no access
-to home directories.
-
-## Dashboard integration
-
-Port 1984 is unauthenticated and is exposed only to make initial testing easy.
-When the Zig dashboard implements its authenticated WebRTC signaling proxy,
-change `/etc/pipanda/go2rtc.yaml` to:
-
-```yaml
-api:
-  listen: "127.0.0.1:1984"
-```
-
-The browser will send its SDP offer to Zig. Zig will forward it to go2rtc's
-local WHEP endpoint, while encrypted media continues directly between the
-browser and go2rtc on port 8555. Never forward port 1984 directly to the
-internet.
 
 ## Uninstall
 
 ```sh
-sudo ./deploy/pi-os/uninstall.sh
+sudo pipanda-uninstall
 ```
 
-Local configuration under `/etc/pipanda` is preserved intentionally.
+The uninstaller removes managed services, binaries, frontend assets and the
+nginx site. Configuration and credentials are intentionally retained; it prints
+the commands needed to delete those too.
+
+## Development staging
+
+The bundle installer supports a non-root staging mode used by CI:
+
+```sh
+./pipanda-VERSION-aarch64.run --extract /tmp/pipanda-bundle
+bash /tmp/pipanda-bundle/install.sh --root /tmp/pipanda-root
+```
+
+The original `deploy/pi-os/install.sh` remains available for camera-only
+development from a repository checkout. Normal users should use the release
+installer.

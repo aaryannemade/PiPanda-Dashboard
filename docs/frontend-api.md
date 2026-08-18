@@ -43,8 +43,10 @@ flags or environment variables:
 | Display name | - | `PIPANDA_PRINTER_NAME` | `Panda` |
 | Model label | - | `PIPANDA_PRINTER_MODEL` | `P1S` |
 | Browser camera URL | - | `PIPANDA_CAMERA_URL` | Local go2rtc player URL |
+| Printer transport | `--lan` | `PIPANDA_TRANSPORT` (`cloud` or `lan`) | `cloud` |
 
-LAN mode also requires `PIPANDA_PRINTER_HOST`. Cloud authentication remains
+LAN mode also requires `PIPANDA_PRINTER_HOST`; `--lan` overrides the transport
+environment setting. Cloud authentication remains
 enabled on the printer, so using local MQTT does not disable Bambu Handy.
 
 The server now binds and serves immediately, even with no stored credentials.

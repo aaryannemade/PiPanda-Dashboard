@@ -35,6 +35,10 @@ const usage =
     \\  --port <number>  HTTP port for serve (default: 8080)
     \\  --verbose        log protocol steps to stderr; credentials are redacted
     \\
+    \\serve environment:
+    \\  PIPANDA_TRANSPORT=cloud|lan
+    \\  PIPANDA_PRINTER_HOST=<address>  required for LAN transport
+    \\
     \\state is kept in $PIPANDA_STATE_DIR, else $XDG_STATE_HOME/pipanda.
     \\
 ;
@@ -64,6 +68,7 @@ pub fn main(init: std.process.Init) !void {
 
     const is_serve = std.mem.eql(u8, args[1], "serve");
     var opts: Options = .{
+        .lan = transportFromEnvironment(init.environ_map.get("PIPANDA_TRANSPORT")),
         .printer_host = init.environ_map.get("PIPANDA_PRINTER_HOST"),
         .api_host = init.environ_map.get("PIPANDA_HTTP_HOST") orelse "127.0.0.1",
         .api_port = if (is_serve)
@@ -194,6 +199,14 @@ fn invalidOption(message: []const u8) noreturn {
 
 fn invalidPort(value: []const u8) noreturn {
     std.log.err("invalid HTTP port '{s}'; expected a number from 0 to 65535", .{value});
+    std.process.exit(2);
+}
+
+fn transportFromEnvironment(value: ?[]const u8) bool {
+    const transport = value orelse return false;
+    if (transport.len == 0 or std.ascii.eqlIgnoreCase(transport, "cloud")) return false;
+    if (std.ascii.eqlIgnoreCase(transport, "lan")) return true;
+    std.log.err("invalid PIPANDA_TRANSPORT '{s}'; expected cloud or lan", .{transport});
     std.process.exit(2);
 }
 
@@ -667,4 +680,12 @@ test readLine {
     var blank: Io.Reader = .fixed("\nx\n");
     try std.testing.expectEqualStrings("", try readLine(&blank));
     try std.testing.expectEqualStrings("x", try readLine(&blank));
+}
+
+test transportFromEnvironment {
+    try std.testing.expect(!transportFromEnvironment(null));
+    try std.testing.expect(!transportFromEnvironment(""));
+    try std.testing.expect(!transportFromEnvironment("cloud"));
+    try std.testing.expect(transportFromEnvironment("lan"));
+    try std.testing.expect(transportFromEnvironment("LAN"));
 }

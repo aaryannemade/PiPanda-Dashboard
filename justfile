@@ -78,6 +78,7 @@ camera-check:
     bash -n deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/tests/*.sh
     shellcheck deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/tests/*.sh
     yq eval deploy/pi-os/go2rtc.yaml >/dev/null
+    yq eval deploy/pi-os/go2rtc-dashboard.yaml >/dev/null
     bash deploy/pi-os/tests/run.sh
 
 # Cross-compile a static ReleaseSafe binary for the 64-bit Pi Zero 2 W.

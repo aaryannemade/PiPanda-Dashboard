@@ -52,4 +52,43 @@ grep --fixed-strings "limited here to 1920x1080" "$tmp/error" >/dev/null
 
 bash "$MODULE_DIR/install.sh" --help >/dev/null
 
-echo "Pi OS camera module tests passed"
+# Exercise the same self-extracting bundle and staged installation path used by
+# the release workflow without requiring ARM hardware or root.
+mkdir -p "$tmp/release" "$tmp/frontend"
+cat >"$tmp/pipanda" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+cat >"$tmp/go2rtc" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$tmp/pipanda" "$tmp/go2rtc"
+printf '<!doctype html><title>PiPanda test</title>\n' >"$tmp/frontend/index.html"
+
+bash "$MODULE_DIR/make-installer.sh" \
+  0.0.0-test \
+  "$tmp/pipanda" \
+  "$tmp/frontend" \
+  "$tmp/go2rtc" \
+  "$tmp/release/pipanda.run"
+
+mkdir -p "$tmp/extracted" "$tmp/staged" "$tmp/direct-staged"
+bash "$tmp/release/pipanda.run" --root "$tmp/direct-staged"
+test -x "$tmp/direct-staged/usr/local/bin/pipanda"
+
+bash "$tmp/release/pipanda.run" --extract "$tmp/extracted"
+bash "$tmp/extracted/install.sh" --root "$tmp/staged"
+
+test -x "$tmp/staged/usr/local/bin/pipanda"
+test -x "$tmp/staged/usr/local/bin/go2rtc"
+test -f "$tmp/staged/usr/local/share/pipanda/frontend/index.html"
+test -f "$tmp/staged/etc/pipanda/pipanda.env"
+test -f "$tmp/staged/etc/systemd/system/pipanda.service"
+test -f "$tmp/staged/etc/systemd/system/pipanda-camera.service"
+test -f "$tmp/staged/etc/nginx/sites-available/pipanda"
+test -L "$tmp/staged/etc/nginx/sites-enabled/pipanda"
+grep --fixed-strings 'listen: "127.0.0.1:1984"' \
+  "$tmp/staged/etc/pipanda/go2rtc.yaml" >/dev/null
+
+echo "Pi OS deployment tests passed"

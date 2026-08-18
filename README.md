@@ -116,10 +116,13 @@ deploy/pi-os/
   go2rtc.yaml           WebRTC media sidecar configuration
 ```
 
-## Camera on Raspberry Pi OS Lite
+## Raspberry Pi OS Lite deployment
 
-The project uses Raspberry Pi OS Lite as the deployment base. Nix is only a
-development environment and is not required on the Pi.
+The project targets a Pi Zero 2 W running 64-bit Raspberry Pi OS Lite. A manual
+GitHub Action takes a version number and publishes a self-extracting ARM64
+installer containing the static Zig backend, compiled frontend, go2rtc, camera
+helpers, nginx configuration and systemd services. Zig, Bun, Node.js and Nix are
+not required on the Pi.
 
 The live path uses the Zero 2 W's hardware H.264 encoder and does not transcode:
 
@@ -127,31 +130,33 @@ The live path uses the Zero 2 W's hardware H.264 encoder and does not transcode:
 Camera Module 3 -> rpicam-vid -> go2rtc -> WebRTC
 ```
 
-Install on a 64-bit Raspberry Pi OS Lite system:
+Download the `.run` file and checksum from a GitHub Release, then install:
 
 ```sh
-sudo ./deploy/pi-os/install.sh
+sha256sum --check pipanda-0.2.0-aarch64.run.sha256
+chmod +x pipanda-0.2.0-aarch64.run
+sudo ./pipanda-0.2.0-aarch64.run
 sudo pipanda-camera-test
 ```
 
-Then open:
+Open `http://<pi-address>/`, use Settings to sign in, and optionally select the
+printer. Configuration lives in `/etc/pipanda`; credentials persist under
+`/var/lib/pipanda`.
 
-```text
-http://<pi-address>:1984/stream.html?src=p1s&mode=webrtc
-```
-
-See [`deploy/pi-os/README.md`](deploy/pi-os/README.md) for physical setup,
-configuration, security, diagnostics and uninstall instructions.
+See [`deploy/pi-os/README.md`](deploy/pi-os/README.md) for release generation,
+physical setup, cloud/LAN configuration, upgrades, security, diagnostics and
+uninstall instructions.
 
 ## Dashboard API
 
-Run the Zig HTTP backend after logging in and selecting a printer:
+Run the Zig HTTP backend. It starts even without credentials so login can happen
+from the Settings page:
 
 ```sh
 zig build run -- serve --lan
 ```
 
-It exposes the live printer, job, controls, camera and AMS data needed to build
+It exposes the live printer, job, controls, camera and AMS data needed by
 the Bambu Handy-style device screen. See
 [`docs/frontend-api.md`](docs/frontend-api.md) for the screenshot inventory,
 endpoint contract, capability flags and examples.

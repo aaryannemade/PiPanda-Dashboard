@@ -1,0 +1,30 @@
+[Unit]
+Description=PiPanda dashboard backend
+Documentation=https://github.com/aaryannemade/pipanda-dashboard
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=pipanda
+WorkingDirectory=/var/lib/pipanda
+Environment=PIPANDA_STATE_DIR=/var/lib/pipanda
+EnvironmentFile=-/etc/pipanda/pipanda.env
+ExecStart=/usr/local/bin/pipanda serve
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=15s
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

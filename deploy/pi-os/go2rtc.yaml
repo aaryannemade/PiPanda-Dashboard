@@ -1,6 +1,6 @@
 api:
-  # Exposed on the LAN during camera bring-up. Once the Zig dashboard proxies
-  # WebRTC signaling, bind this to 127.0.0.1:1984 instead.
+  # Camera-only development exposes the test viewer directly on the LAN. The
+  # release bundle installs go2rtc-dashboard.yaml instead and proxies it.
   listen: "0.0.0.0:1984"
 
 rtsp:

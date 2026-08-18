@@ -1,0 +1,167 @@
+name: Build Raspberry Pi installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (for example 0.2.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pi-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build Pi OS release
+    runs-on: ubuntu-latest
+    env:
+      GO2RTC_VERSION: 1.9.14
+      GO2RTC_ARM64_SHA256: 359fabade8a7a51e81a55fe6df6b0ef81764a5e1d63179577534eaaa71904b50
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="$INPUT_VERSION"
+          version="${version#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version '$version'; expected a semantic version such as 1.2.3" >&2
+            exit 1
+          fi
+          {
+            echo "VERSION=$version"
+            echo "RELEASE_TAG=v$version"
+            echo "INSTALLER=pipanda-$version-aarch64.run"
+          } >>"$GITHUB_ENV"
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Install frontend dependencies
+        run: bun install --cwd frontend --frozen-lockfile
+
+      - name: Verify source
+        shell: bash
+        run: |
+          set -euo pipefail
+          zig fmt --check src build.zig
+          zig build check
+          zig build test --summary all
+          bun run --cwd frontend check
+          bash -n deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/tests/*.sh
+          shellcheck deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/tests/*.sh
+
+      - name: Build frontend
+        run: bun run --cwd frontend build
+
+      - name: Cross-compile static backend
+        run: >-
+          zig build
+          -Dtarget=aarch64-linux-musl
+          -Dcpu=cortex_a53
+          -Doptimize=ReleaseSafe
+
+      - name: Download verified go2rtc
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          url="https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_arm64"
+          curl --fail --location --proto '=https' --tlsv1.2 --output release/go2rtc "$url"
+          printf '%s  %s\n' "$GO2RTC_ARM64_SHA256" release/go2rtc | sha256sum --check
+          chmod 0755 release/go2rtc
+
+      - name: Generate changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous_tag="$(git tag --merged HEAD --sort=-version:refname | grep -Fvx "$RELEASE_TAG" | head -n 1 || true)"
+          {
+            echo "# PiPanda $VERSION"
+            echo
+            echo "Released $(date -u +%Y-%m-%d)."
+            echo
+            echo "## Changes"
+            echo
+            if [[ -n "$previous_tag" ]]; then
+              git log --no-merges --pretty=format:"- %s (\`%h\`)" "$previous_tag..HEAD"
+            else
+              git log --no-merges --pretty=format:"- %s (\`%h\`)" HEAD
+            fi
+            echo
+          } >"release/pipanda-$VERSION-CHANGELOG.md"
+
+      - name: Build self-extracting installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash deploy/pi-os/make-installer.sh \
+            "$VERSION" \
+            zig-out/bin/pipanda \
+            frontend/dist \
+            release/go2rtc \
+            "release/$INSTALLER"
+          (cd release && sha256sum "$INSTALLER" >"$INSTALLER.sha256")
+
+      - name: Smoke-test installer payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release/extracted release/staged
+          "release/$INSTALLER" --extract release/extracted
+          bash release/extracted/install.sh --root "$(pwd)/release/staged"
+          test -x release/staged/usr/local/bin/pipanda
+          test -f release/staged/usr/local/share/pipanda/frontend/index.html
+          test -f release/staged/etc/systemd/system/pipanda.service
+          test -L release/staged/etc/nginx/sites-enabled/pipanda
+          rm -rf release/extracted release/staged release/go2rtc
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipanda-${{ env.VERSION }}-aarch64
+          path: |
+            release/${{ env.INSTALLER }}
+            release/${{ env.INSTALLER }}.sha256
+            release/pipanda-${{ env.VERSION }}-CHANGELOG.md
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          notes="release/pipanda-$VERSION-CHANGELOG.md"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --notes-file "$notes" --title "PiPanda $VERSION"
+          else
+            gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "PiPanda $VERSION" \
+              --notes-file "$notes"
+          fi
+          gh release upload "$RELEASE_TAG" --clobber \
+            "release/$INSTALLER" \
+            "release/$INSTALLER.sha256" \
+            "$notes"
