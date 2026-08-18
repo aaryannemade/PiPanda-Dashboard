@@ -85,6 +85,8 @@ test -x "$tmp/staged/usr/local/bin/go2rtc"
 test -f "$tmp/staged/usr/local/share/pipanda/frontend/index.html"
 test -f "$tmp/staged/etc/pipanda/pipanda.env"
 test -f "$tmp/staged/etc/systemd/system/pipanda.service"
+grep --fixed-strings 'Environment=PIPANDA_STATE_DIR=.' \
+  "$tmp/staged/etc/systemd/system/pipanda.service" >/dev/null
 test -f "$tmp/staged/etc/systemd/system/pipanda-camera.service"
 test -f "$tmp/staged/etc/nginx/sites-available/pipanda"
 test -L "$tmp/staged/etc/nginx/sites-enabled/pipanda"

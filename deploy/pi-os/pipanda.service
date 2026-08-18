@@ -9,7 +9,10 @@ Type=simple
 DynamicUser=yes
 StateDirectory=pipanda
 WorkingDirectory=/var/lib/pipanda
-Environment=PIPANDA_STATE_DIR=/var/lib/pipanda
+# Use the writable StateDirectory as the working directory. A relative path
+# avoids systemd DynamicUser's /var/lib/pipanda -> private/pipanda symlink when
+# the credentials store ensures its directory exists.
+Environment=PIPANDA_STATE_DIR=.
 EnvironmentFile=-/etc/pipanda/pipanda.env
 ExecStart=/usr/local/bin/pipanda serve
 Restart=on-failure

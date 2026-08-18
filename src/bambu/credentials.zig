@@ -101,9 +101,15 @@ pub const Store = struct {
     pub fn save(self: Store, gpa: Allocator, creds: Credentials) SaveError!void {
         const cwd = Io.Dir.cwd();
         cwd.createDirPath(self.io, self.dir) catch |err| switch (err) {
-            error.PathAlreadyExists => {},
+            // DynamicUser StateDirectory paths are symlinks into
+            // /var/lib/private. createDirPath deliberately reports NotDir for
+            // an existing symlink, but opening a file through it is valid.
+            error.PathAlreadyExists, error.NotDir => {},
             error.AccessDenied, error.PermissionDenied => return error.AccessDenied,
-            else => return error.Unexpected,
+            else => {
+                std.log.err("could not prepare credentials directory '{s}': {t}", .{ self.dir, err });
+                return error.Unexpected;
+            },
         };
 
         const json = try std.json.Stringify.valueAlloc(gpa, creds, .{ .whitespace = .indent_2 });
@@ -118,7 +124,10 @@ pub const Store = struct {
             .flags = .{ .permissions = private_file },
         }) catch |err| switch (err) {
             error.AccessDenied, error.PermissionDenied => return error.AccessDenied,
-            else => return error.Unexpected,
+            else => {
+                std.log.err("could not write credentials file in '{s}': {t}", .{ self.dir, err });
+                return error.Unexpected;
+            },
         };
     }
 
