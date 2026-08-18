@@ -74,6 +74,28 @@ export interface Temperature {
   target: number | null;
 }
 
+export interface AuthStatus {
+  authenticated: boolean;
+  account: string | null;
+  device_id: string | null;
+  device_selected: boolean;
+  connected: boolean;
+  online: boolean;
+  /** A login step is awaiting a follow-up: "code", "tfa" or null. */
+  pending: "code" | "tfa" | null;
+}
+
+/** Outcome of a login step. `authenticated` means the token is stored. */
+export type LoginResult = "authenticated" | "code_required" | "tfa_required";
+
+export interface Device {
+  dev_id: string;
+  name: string;
+  online: boolean;
+  model: string;
+  selected: boolean;
+}
+
 export interface AmsState {
   ams?: AmsUnit[];
   tray_now?: string;

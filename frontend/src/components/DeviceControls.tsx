@@ -18,11 +18,10 @@ export function DeviceControls(props: DeviceControlsProps) {
     <section class="content-section controls-section">
       <div class="section-heading">
         <h2>Device Control</h2>
-        <button type="button" disabled>More <Icon name="chevron" size={20} /></button>
       </div>
       <div class="control-layout">
         <article class="nozzle-card panel">
-          <div class="card-label">Nozzle &amp; Extruder <Icon name="chevron" size={19} /></div>
+          <div class="card-label">Nozzle &amp; Extruder</div>
           <div class="nozzle-content">
             <div class="temperature-reading">
               <strong>{measurement(props.controls.temperatures.nozzle.current)}</strong>
@@ -39,7 +38,7 @@ export function DeviceControls(props: DeviceControlsProps) {
 
         <div class="control-stack">
           <article class="motion-card panel unavailable">
-            <div class="card-label">Motion <Icon name="chevron" size={19} /></div>
+            <div class="card-label">Motion</div>
             <strong>XYZ</strong>
             <span>Controls unavailable</span>
           </article>

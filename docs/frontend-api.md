@@ -47,9 +47,15 @@ flags or environment variables:
 LAN mode also requires `PIPANDA_PRINTER_HOST`. Cloud authentication remains
 enabled on the printer, so using local MQTT does not disable Bambu Handy.
 
-The API has no authentication. Keep it on loopback and expose it through the
-future authenticated frontend/reverse proxy rather than binding it directly to
-an untrusted network.
+The server now binds and serves immediately, even with no stored credentials.
+Bambu Lab login happens over the `/api/v1/auth/*` routes (below), which mirror
+the `pipanda login` CLI state machine; once a token and a printer are stored the
+server establishes the live printer session on its own. `serve` no longer
+requires running `login` first.
+
+The API still has no access control of its own. Keep it on loopback and expose
+it through an authenticated reverse proxy rather than binding it directly to an
+untrusted network — the auth routes hand out and revoke the Bambu access token.
 
 ## Endpoints
 
@@ -165,6 +171,91 @@ The response is HTTP 202:
 Accepted means the QoS 1 MQTT command was published. It does not claim the
 printer applied the command; the frontend should use the next dashboard state
 update as confirmation.
+
+## Authentication endpoints
+
+These drive the same Bambu Lab cloud login flow as `pipanda login`, so the
+settings page can authenticate without touching the CLI. Until login completes
+and a printer is selected, `/api/v1/dashboard`, `/api/v1/printer/state` and
+`/api/v1/controls/light` answer `503 not_connected`.
+
+### `GET /api/v1/auth/status`
+
+Snapshot of the auth state, used to render the settings page on load:
+
+```json
+{
+  "authenticated": true,
+  "account": "you@example.com",
+  "device_id": "01P...",
+  "device_selected": true,
+  "connected": true,
+  "online": true,
+  "pending": null
+}
+```
+
+`pending` is `"code"` or `"tfa"` when a login step is awaiting a follow-up,
+otherwise `null`. `connected` reflects whether the live printer session is up.
+
+### `POST /api/v1/auth/login`
+
+Step one. Body:
+
+```json
+{ "account": "you@example.com", "password": "…", "region": "global", "code_login": false }
+```
+
+`region` is `"global"` (default) or `"china"`. Set `code_login` to `true`, or
+omit the password, to skip straight to the emailed/texted-code flow for accounts
+with no password. The response reports the next step:
+
+```json
+{ "result": "authenticated" }
+```
+
+`result` is one of `authenticated` (token stored), `code_required` (a code has
+been sent — call `/auth/code`) or `tfa_required` (an authenticator app is
+enrolled — call `/auth/tfa`).
+
+### `POST /api/v1/auth/code`
+
+Step two for emailed/texted codes. Body `{ "code": "123456" }`. Returns
+`{ "result": "authenticated" }` on success.
+
+### `POST /api/v1/auth/tfa`
+
+Step two for authenticator apps. Body `{ "code": "123456" }`. Returns
+`{ "result": "authenticated" }` on success.
+
+### `GET /api/v1/auth/devices`
+
+The printers bound to the logged-in account, so the frontend can offer a
+selector when there is more than one:
+
+```json
+{
+  "devices": [
+    { "dev_id": "01P...", "name": "Panda", "online": true, "model": "P1S", "selected": true }
+  ]
+}
+```
+
+### `POST /api/v1/auth/select`
+
+Chooses the printer to watch and caches its LAN access code. Body
+`{ "device_id": "01P..." }`. Returns `{ "selected": true }` and reconnects the
+live session against the new printer. A single-printer account is selected
+automatically at login, so this is only needed when several printers exist.
+
+### `POST /api/v1/auth/logout`
+
+Discards the stored token, tears down the live session, and returns
+`{ "logged_out": true }`.
+
+Login errors reuse the standard error shape with codes such as
+`invalid_credentials`, `code_incorrect`, `code_expired`, `cloudflare_blocked`,
+`cloud_unreachable` and `not_authenticated`.
 
 All endpoints support `OPTIONS`; GET endpoints also support `HEAD`. Errors use
 the shape `{"error":{"code":"...","message":"..."}}`.

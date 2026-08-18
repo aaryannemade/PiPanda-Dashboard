@@ -27,6 +27,7 @@ Implemented so far: the backend that talks to the printer.
 | Timelapse recording | not started |
 | Home Assistant integration | not started |
 | HTTP dashboard | SolidJS device screen and Zig API implemented |
+| Dashboard login | Settings page with Bambu Lab login (password, emailed code, authenticator) over the API |
 
 ## Getting started
 

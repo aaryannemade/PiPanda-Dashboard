@@ -50,7 +50,6 @@ export function FilamentSection(props: FilamentSectionProps) {
     <section class="content-section filament-section">
       <div class="section-heading">
         <h2>Filament</h2>
-        <button type="button" disabled>More <Icon name="chevron" size={20} /></button>
       </div>
       <article class="filament-card panel">
         <div class="filament-tabs">
@@ -103,14 +102,6 @@ export function FilamentSection(props: FilamentSectionProps) {
             )}</For>
           </div>
         </Show>
-      </article>
-
-      <article class="library-card panel">
-        <div class="library-heading">
-          <span>Filament Library</span>
-          <span>{props.filament.library.roll_count ?? 0} rolls <Icon name="chevron" size={19} /></span>
-        </div>
-        <button type="button" disabled={!props.filament.library.available}>Add Filament</button>
       </article>
     </section>
   );

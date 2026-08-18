@@ -121,4 +121,19 @@ pub const Store = struct {
             else => return error.Unexpected,
         };
     }
+
+    pub const DeleteError = error{ NotFound, OutOfMemory, AccessDenied, Unexpected };
+
+    /// Removes the stored credentials, e.g. on logout. `NotFound` when there was
+    /// nothing to remove.
+    pub fn delete(self: Store, gpa: Allocator) DeleteError!void {
+        const full_path = try self.path(gpa);
+        defer gpa.free(full_path);
+
+        Io.Dir.cwd().deleteFile(self.io, full_path) catch |err| switch (err) {
+            error.FileNotFound => return error.NotFound,
+            error.AccessDenied, error.PermissionDenied => return error.AccessDenied,
+            else => return error.Unexpected,
+        };
+    }
 };

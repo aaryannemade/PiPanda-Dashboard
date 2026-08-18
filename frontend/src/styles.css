@@ -187,13 +187,16 @@ button:disabled {
 }
 
 .camera-panel {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
 }
 
 .camera-frame {
   position: relative;
+  flex: 1;
   overflow: hidden;
-  aspect-ratio: 16 / 9;
+  min-height: min(56vw, 340px);
   border: 1px solid rgba(255, 255, 255, 0.04);
   border-radius: 23px;
   background: #111311;
@@ -266,26 +269,6 @@ button:disabled {
 .live-chip.inactive > span {
   background: #737773;
   box-shadow: none;
-}
-
-.pager-dots {
-  display: flex;
-  justify-content: center;
-  gap: 7px;
-  height: 30px;
-  align-items: center;
-}
-
-.pager-dots span {
-  width: 5px;
-  height: 5px;
-  border-radius: 99px;
-  background: #565956;
-}
-
-.pager-dots span.active {
-  width: 18px;
-  background: var(--green-bright);
 }
 
 .job-card {
@@ -1171,4 +1154,266 @@ button:disabled {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* --- Settings page ------------------------------------------------------ */
+
+.settings {
+  width: min(100%, 680px);
+  margin: 0 auto;
+  padding: max(28px, env(safe-area-inset-top)) 22px calc(118px + env(safe-area-inset-bottom));
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 82px;
+  margin-bottom: 20px;
+  color: var(--green);
+}
+
+.settings-head h1 {
+  margin: 0;
+  color: #f3f5f3;
+  font: 600 clamp(1.6rem, 5vw, 2rem)/1.1 "Manrope", sans-serif;
+  letter-spacing: -0.04em;
+}
+
+.settings-card {
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.025);
+  border-radius: 20px;
+  background: linear-gradient(145deg, #1a1c1b, #161817);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.13);
+}
+
+.settings-card h2 {
+  margin: 0 0 18px;
+  font: 600 1.15rem/1.2 "Manrope", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.settings-card h3 {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.settings-error,
+.settings-notice {
+  margin: 0 0 16px;
+  padding: 10px 13px;
+  border-radius: 11px;
+  font-size: 0.84rem;
+}
+
+.settings-error {
+  border: 1px solid rgba(224, 78, 78, 0.3);
+  background: rgba(91, 22, 22, 0.28);
+  color: #f0a9a9;
+}
+
+.settings-notice {
+  border: 1px solid rgba(230, 175, 70, 0.25);
+  background: rgba(91, 65, 19, 0.25);
+  color: #e4c889;
+}
+
+.settings-muted {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.settings-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.settings-form input[type="email"],
+.settings-form input[type="password"],
+.settings-form input[type="text"],
+.settings-form select {
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #121413;
+  color: #f3f5f3;
+  font-size: 0.95rem;
+}
+
+.settings-form input:focus-visible,
+.settings-form select:focus-visible {
+  outline: 2px solid var(--green-bright);
+  outline-offset: 1px;
+}
+
+.settings-checkbox {
+  flex-direction: row !important;
+  align-items: flex-start;
+  gap: 10px !important;
+  line-height: 1.35;
+}
+
+.settings-checkbox input {
+  margin-top: 2px;
+  accent-color: var(--green);
+}
+
+.settings-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.settings-button {
+  padding: 12px 18px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--green);
+  color: #05210b;
+  font-weight: 600;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+
+.settings-button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.settings-button:disabled {
+  opacity: 0.5;
+}
+
+.settings-button.ghost {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8eae8;
+}
+
+.settings-actions .settings-button {
+  flex: 1;
+}
+
+.settings-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 22px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #131514;
+}
+
+.settings-account-label {
+  margin: 0 0 3px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.settings-account-value {
+  margin: 0;
+  font-weight: 600;
+  font-size: 1rem;
+  word-break: break-all;
+}
+
+.settings-pill {
+  flex-shrink: 0;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.settings-pill.ok {
+  background: rgba(53, 195, 74, 0.16);
+  color: var(--green-bright);
+}
+
+.settings-pill.idle {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--muted);
+}
+
+.settings-devices {
+  margin-bottom: 22px;
+}
+
+.device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #131514;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.device-row:hover:not(:disabled) {
+  border-color: rgba(53, 195, 74, 0.4);
+}
+
+.device-row.selected {
+  border-color: rgba(53, 195, 74, 0.45);
+  background: rgba(53, 195, 74, 0.08);
+  cursor: default;
+}
+
+.device-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.device-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.device-meta {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.device-select {
+  color: var(--green);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.device-selected {
+  color: var(--green-bright);
+  font-size: 0.84rem;
+  font-weight: 600;
 }

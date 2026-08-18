@@ -37,7 +37,6 @@ export function CameraCard(props: CameraCardProps) {
           <span /> {props.live ? "LIVE" : "OFFLINE"}
         </div>
       </div>
-      <div class="pager-dots" aria-hidden="true"><span /><span class="active" /></div>
     </article>
   );
 }

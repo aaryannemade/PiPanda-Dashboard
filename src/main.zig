@@ -462,16 +462,21 @@ fn cmdServe(
     opts: Options,
     args: []const []const u8,
 ) !void {
+    _ = arena;
     if (args.len != 0) return error.UnexpectedServeArgument;
-    const session = try openSession(gpa, arena, io, store, opts);
-    defer session.close();
 
-    try pipanda.api.serve(gpa, io, session, .{
+    // The API server no longer needs an established session to start: it binds
+    // immediately and drives login through its own `/api/v1/auth/*` routes, then
+    // brings the printer session up once a token and a printer exist. This lets
+    // the settings page log in without the chicken-and-egg of `login` first.
+    try pipanda.api.serve(gpa, io, store, .{
         .host = opts.api_host,
         .port = opts.api_port,
         .printer_name = opts.printer_name,
         .printer_model = opts.printer_model,
         .camera_url = opts.camera_url,
+        .lan = opts.lan,
+        .printer_host = opts.printer_host,
     });
 }
 

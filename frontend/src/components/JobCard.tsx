@@ -1,4 +1,4 @@
-import { For, Show, createMemo } from "solid-js";
+import { Show, createMemo } from "solid-js";
 import type { Dashboard } from "../types";
 import { Icon } from "./Icon";
 
@@ -52,15 +52,6 @@ export function JobCard(props: JobCardProps) {
             <span style={{ width: `${progress()}%` }} />
           </div>
           <p class="layer-copy">Layer {props.job.layer ?? "—"}/{props.job.total_layers ?? "—"}</p>
-        </div>
-      </div>
-      <button class="wide-action" type="button" disabled={!props.job.actions.print_again}>
-        <Icon name="rotate" size={24} /> Print again
-      </button>
-      <div class="rating-row">
-        <span>Give a rating</span>
-        <div aria-label="Rating unavailable">
-          <For each={[1, 2, 3, 4, 5]}>{() => <Icon name="star" size={25} filled />}</For>
         </div>
       </div>
     </article>

@@ -1,12 +1,13 @@
-import { createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { fetchDashboard, setChamberLight } from "./api";
-import { BottomNav } from "./components/BottomNav";
+import { BottomNav, type View } from "./components/BottomNav";
 import { CameraCard } from "./components/CameraCard";
 import { ConnectionBanner } from "./components/ConnectionBanner";
 import { DeviceControls } from "./components/DeviceControls";
 import { FilamentSection } from "./components/FilamentSection";
 import { JobCard } from "./components/JobCard";
 import { PrinterHeader } from "./components/PrinterHeader";
+import { SettingsPage } from "./components/SettingsPage";
 import { EMPTY_DASHBOARD } from "./lib/dashboard";
 import type { Dashboard } from "./types";
 
@@ -15,6 +16,7 @@ const REQUEST_TIMEOUT_MS = 8_000;
 const COMMAND_CONFIRM_TIMEOUT_MS = 8_000;
 
 function App() {
+  const [view, setView] = createSignal<View>("devices");
   const [dashboard, setDashboard] = createSignal<Dashboard>();
   const [connectionError, setConnectionError] = createSignal<string>();
   const [commandError, setCommandError] = createSignal<string>();
@@ -26,14 +28,15 @@ function App() {
   let lightCommandController: AbortController | undefined;
   let lightCommandSequence = 0;
 
-  const view = createMemo(() => dashboard() ?? EMPTY_DASHBOARD);
-  const isOnline = createMemo(() => Boolean(dashboard() && view().printer.online && !connectionError()));
-  const lightOn = createMemo(() => lightOverride() ?? view().controls.light.on ?? false);
-  const cameraLive = createMemo(() => isOnline() && view().camera.available && Boolean(view().camera.player_url));
+  const data = createMemo(() => dashboard() ?? EMPTY_DASHBOARD);
+  const isOnline = createMemo(() => Boolean(dashboard() && data().printer.online && !connectionError()));
+  const lightOn = createMemo(() => lightOverride() ?? data().controls.light.on ?? false);
+  const cameraLive = createMemo(() => isOnline() && data().camera.available && Boolean(data().camera.player_url));
   const alertMessage = createMemo(() => commandError() ?? connectionError());
 
   const refresh = async () => {
-    if (refreshing) return;
+    // The dashboard is not visible on the settings view, so do not poll it.
+    if (refreshing || view() !== "devices") return;
     refreshing = true;
     controller = new AbortController();
     let timedOut = false;
@@ -79,7 +82,7 @@ function App() {
   });
 
   const toggleLight = async () => {
-    if (!view().capabilities.light_control || lightPending()) return;
+    if (!data().capabilities.light_control || lightPending()) return;
     const next = !lightOn();
     const commandSequence = ++lightCommandSequence;
     lightCommandController?.abort();
@@ -117,33 +120,45 @@ function App() {
     void refresh();
   };
 
+  const onNavigate = (next: View) => {
+    setView(next);
+    // Coming back to the devices view should refresh immediately rather than
+    // wait a full poll interval.
+    if (next === "devices") void refresh();
+  };
+
   return (
     <div class="app-shell">
-      <main class="dashboard">
-        <PrinterHeader printer={view().printer} online={isOnline()} connecting={!dashboard()} />
-        <ConnectionBanner message={alertMessage()} onRetry={retry} />
+      <Show
+        when={view() === "devices"}
+        fallback={<SettingsPage />}
+      >
+        <main class="dashboard">
+          <PrinterHeader printer={data().printer} online={isOnline()} connecting={!dashboard()} />
+          <ConnectionBanner message={alertMessage()} onRetry={retry} />
 
-        <section class="hero-grid" aria-label="Printer overview">
-          <CameraCard
-            camera={view().camera}
-            printerName={view().printer.name}
-            live={cameraLive()}
-            connecting={!dashboard()}
+          <section class="hero-grid" aria-label="Printer overview">
+            <CameraCard
+              camera={data().camera}
+              printerName={data().printer.name}
+              live={cameraLive()}
+              connecting={!dashboard()}
+            />
+            <JobCard job={data().job} />
+          </section>
+
+          <DeviceControls
+            controls={data().controls}
+            lightControlAvailable={data().capabilities.light_control}
+            lightOn={lightOn()}
+            lightPending={lightPending()}
+            onToggleLight={() => void toggleLight()}
           />
-          <JobCard job={view().job} />
-        </section>
+          <FilamentSection filament={data().filament} />
+        </main>
+      </Show>
 
-        <DeviceControls
-          controls={view().controls}
-          lightControlAvailable={view().capabilities.light_control}
-          lightOn={lightOn()}
-          lightPending={lightPending()}
-          onToggleLight={() => void toggleLight()}
-        />
-        <FilamentSection filament={view().filament} />
-      </main>
-
-      <BottomNav />
+      <BottomNav view={view()} onNavigate={onNavigate} />
     </div>
   );
 }
