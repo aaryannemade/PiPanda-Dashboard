@@ -10,7 +10,6 @@ interface BottomNavProps {
 export function BottomNav(props: BottomNavProps) {
   return (
     <nav class="bottom-nav" aria-label="Primary navigation">
-      <button type="button" disabled><Icon name="cube" size={28} /><span>Models</span></button>
       <button
         type="button"
         class={props.view === "devices" ? "active" : undefined}

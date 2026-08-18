@@ -2,7 +2,7 @@
   color-scheme: dark;
   font-family: "DM Sans", system-ui, sans-serif;
   color: #f3f5f3;
-  background: #090a09;
+  background: #000;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --green: #35c34a;
@@ -18,17 +18,15 @@
 }
 
 html {
-  background: #090a09;
-  scrollbar-color: #3a3d3b #0b0c0b;
+  background: #000;
+  scrollbar-color: #3a3d3b #000;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 50% -20%, rgba(62, 74, 66, 0.22), transparent 38rem),
-    linear-gradient(180deg, #0b0c0b 0%, #080908 100%);
+  background: #000;
 }
 
 button,
@@ -922,7 +920,7 @@ button:disabled {
   bottom: 0;
   left: 0;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   min-height: calc(76px + env(safe-area-inset-bottom));
   padding: 9px max(18px, calc((100vw - 760px) / 2)) env(safe-area-inset-bottom);
   border-top: 1px solid rgba(255, 255, 255, 0.045);
