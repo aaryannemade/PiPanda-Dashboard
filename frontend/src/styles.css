@@ -52,6 +52,7 @@ button:disabled {
 
 .app-shell {
   min-height: 100vh;
+  overflow-x: clip;
 }
 
 .dashboard {
@@ -172,11 +173,23 @@ button:disabled {
   cursor: pointer;
 }
 
-.hero-grid {
+.dashboard-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
   gap: 18px;
-  align-items: stretch;
+  align-items: start;
+}
+
+.dashboard-column {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* Inside the grid, spacing comes from the flex gap, not per-section margins. */
+.dashboard-grid .content-section {
+  margin-top: 0;
 }
 
 .panel {
@@ -281,11 +294,12 @@ button:disabled {
   display: grid;
   grid-template-columns: 104px minmax(0, 1fr);
   gap: 17px;
+  align-items: center;
 }
 
 .print-preview {
   display: grid;
-  min-height: 130px;
+  aspect-ratio: 1;
   overflow: hidden;
   place-items: center;
   border-radius: 13px;
@@ -310,15 +324,6 @@ button:disabled {
   min-width: 0;
 }
 
-.eyebrow {
-  margin: 0 0 4px;
-  color: #6f7470;
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-}
-
 .job-copy h2 {
   overflow: hidden;
   margin: 0;
@@ -329,14 +334,35 @@ button:disabled {
   white-space: nowrap;
 }
 
-.job-profile,
-.layer-copy {
+.job-profile {
   overflow: hidden;
   margin: 5px 0 0;
   color: #858986;
   font-size: 0.82rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.job-footer {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 9px;
+}
+
+.layer-copy,
+.remaining-copy {
+  overflow: hidden;
+  color: #858986;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.remaining-copy {
+  color: #acb0ad;
+  font-weight: 600;
+  text-align: right;
 }
 
 .job-status-line {
@@ -930,25 +956,6 @@ button:disabled {
 }
 
 @media (min-width: 1000px) {
-  .content-section {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .controls-section,
-  .filament-section {
-    width: calc(50% - 9px);
-  }
-
-  .controls-section {
-    float: left;
-  }
-
-  .filament-section {
-    float: right;
-    margin-top: 34px;
-  }
-
   .control-layout {
     grid-template-columns: 1.05fr 0.95fr;
   }
@@ -960,12 +967,6 @@ button:disabled {
   .spool-grid {
     gap: 7px;
   }
-
-  .dashboard::after {
-    content: "";
-    display: table;
-    clear: both;
-  }
 }
 
 @media (max-width: 849px) {
@@ -973,9 +974,22 @@ button:disabled {
     width: min(100%, 680px);
   }
 
-  .hero-grid {
-    grid-template-columns: 1fr;
+  /* Single column: flatten both column wrappers and order the four cards
+     camera -> job -> controls -> filament. */
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: 100%;
+    gap: 22px;
   }
+
+  .dashboard-column {
+    display: contents;
+  }
+
+  .col-camera { order: 1; }
+  .col-job { order: 2; }
+  .col-controls { order: 3; }
+  .col-filament { order: 4; }
 }
 
 @media (max-width: 540px) {
@@ -1014,9 +1028,6 @@ button:disabled {
     gap: 13px;
   }
 
-  .print-preview {
-    min-height: 126px;
-  }
 
   .rating-row {
     margin-top: 14px;
@@ -1124,10 +1135,6 @@ button:disabled {
 
   .job-main {
     grid-template-columns: 80px minmax(0, 1fr);
-  }
-
-  .print-preview {
-    min-height: 116px;
   }
 
   .job-copy h2 {

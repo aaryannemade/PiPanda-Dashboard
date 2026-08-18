@@ -137,24 +137,35 @@ function App() {
           <PrinterHeader printer={data().printer} online={isOnline()} connecting={!dashboard()} />
           <ConnectionBanner message={alertMessage()} onRetry={retry} />
 
-          <section class="hero-grid" aria-label="Printer overview">
-            <CameraCard
-              camera={data().camera}
-              printerName={data().printer.name}
-              live={cameraLive()}
-              connecting={!dashboard()}
-            />
-            <JobCard job={data().job} />
-          </section>
-
-          <DeviceControls
-            controls={data().controls}
-            lightControlAvailable={data().capabilities.light_control}
-            lightOn={lightOn()}
-            lightPending={lightPending()}
-            onToggleLight={() => void toggleLight()}
-          />
-          <FilamentSection filament={data().filament} />
+          <div class="dashboard-grid">
+            <div class="dashboard-column left">
+              <div class="col-camera">
+                <CameraCard
+                  camera={data().camera}
+                  printerName={data().printer.name}
+                  live={cameraLive()}
+                  connecting={!dashboard()}
+                />
+              </div>
+              <div class="col-filament">
+                <FilamentSection filament={data().filament} />
+              </div>
+            </div>
+            <div class="dashboard-column right">
+              <div class="col-job">
+                <JobCard job={data().job} />
+              </div>
+              <div class="col-controls">
+                <DeviceControls
+                  controls={data().controls}
+                  lightControlAvailable={data().capabilities.light_control}
+                  lightOn={lightOn()}
+                  lightPending={lightPending()}
+                  onToggleLight={() => void toggleLight()}
+                />
+              </div>
+            </div>
+          </div>
         </main>
       </Show>
 

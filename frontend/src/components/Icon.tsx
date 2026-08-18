@@ -1,6 +1,6 @@
 import { Show } from "solid-js";
 
-export type IconName = "camera" | "chevron" | "cube" | "droplet" | "eye" | "fan" | "printer" | "rotate" | "scan" | "settings" | "star" | "user";
+export type IconName = "camera" | "chevron" | "cube" | "droplet" | "eye" | "fan" | "printer" | "rotate" | "scan" | "settings" | "star" | "thermometer" | "user";
 
 interface IconProps {
   name: IconName;
@@ -60,6 +60,10 @@ export function Icon(props: IconProps) {
         <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" />
       </Show>
       <Show when={props.name === "star"}><path d="m12 2.7 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.3l6.2-.9L12 2.7Z" /></Show>
+      <Show when={props.name === "thermometer"}>
+        <path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0Z" />
+        <circle cx="12" cy="18" r="1.6" />
+      </Show>
       <Show when={props.name === "user"}>
         <circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0H4Z" />
       </Show>

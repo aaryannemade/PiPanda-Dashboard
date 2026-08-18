@@ -39,9 +39,8 @@ export function JobCard(props: JobCardProps) {
           </Show>
         </div>
         <div class="job-copy">
-          <p class="eyebrow">Current print</p>
           <h2>{props.job.name ?? "No active print"}</h2>
-          <p class="job-profile">{props.job.profile ?? formatDuration(props.job.remaining_minutes) ?? "Printer is ready"}</p>
+          <p class="job-profile">{props.job.profile ?? "Printer is ready"}</p>
           <div class="job-status-line">
             <strong>{props.job.progress_percent == null ? "—" : `${progress()}%`}</strong>
             <span classList={{ success: props.job.result === "success", failed: props.job.result === "failed" }}>
@@ -51,7 +50,12 @@ export function JobCard(props: JobCardProps) {
           <div class="progress-track" role="progressbar" aria-label="Print progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress()}>
             <span style={{ width: `${progress()}%` }} />
           </div>
-          <p class="layer-copy">Layer {props.job.layer ?? "—"}/{props.job.total_layers ?? "—"}</p>
+          <div class="job-footer">
+            <span class="layer-copy">Layer {props.job.layer ?? "—"}/{props.job.total_layers ?? "—"}</span>
+            <Show when={formatDuration(props.job.remaining_minutes)}>
+              {(remaining) => <span class="remaining-copy">{remaining()}</span>}
+            </Show>
+          </div>
         </div>
       </div>
     </article>

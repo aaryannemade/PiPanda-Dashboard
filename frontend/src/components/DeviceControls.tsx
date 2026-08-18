@@ -37,11 +37,6 @@ export function DeviceControls(props: DeviceControlsProps) {
         </article>
 
         <div class="control-stack">
-          <article class="motion-card panel unavailable">
-            <div class="card-label">Motion</div>
-            <strong>XYZ</strong>
-            <span>Controls unavailable</span>
-          </article>
           <article class="light-card panel">
             <div>
               <span class="card-label">Light</span>
@@ -58,11 +53,16 @@ export function DeviceControls(props: DeviceControlsProps) {
               onClick={props.onToggleLight}
             ><span /></button>
           </article>
+          <article class="motion-card panel unavailable">
+            <div class="card-label">Motion</div>
+            <strong>XYZ</strong>
+            <span>Controls unavailable</span>
+          </article>
         </div>
       </div>
 
       <div class="telemetry-strip panel">
-        <div><span>Bed</span><strong>{measurement(props.controls.temperatures.bed.current, "°")}</strong></div>
+        <div><Icon name="thermometer" size={20} /><span>Bed</span><strong>{measurement(props.controls.temperatures.bed.current, "°")}</strong></div>
         <div><Icon name="fan" size={20} /><span>Part</span><strong>{measurement(props.controls.fans.cooling_percent, "%")}</strong></div>
         <div><Icon name="fan" size={20} /><span>Aux</span><strong>{measurement(props.controls.fans.aux_percent, "%")}</strong></div>
         <div><Icon name="fan" size={20} /><span>Chamber</span><strong>{measurement(props.controls.fans.chamber_percent, "%")}</strong></div>
