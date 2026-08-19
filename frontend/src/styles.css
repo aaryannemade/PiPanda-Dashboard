@@ -54,9 +54,9 @@ button:disabled {
 }
 
 .dashboard {
-  width: min(100%, 1120px);
+  width: min(100%, 1280px);
   margin: 0 auto;
-  padding: max(28px, env(safe-area-inset-top)) 22px calc(118px + env(safe-area-inset-bottom));
+  padding: max(28px, env(safe-area-inset-top)) 22px calc(98px + env(safe-area-inset-bottom));
 }
 
 .topbar {
@@ -992,8 +992,8 @@ button:disabled {
   left: 0;
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  min-height: calc(76px + env(safe-area-inset-bottom));
-  padding: 9px max(18px, calc((100vw - 760px) / 2)) env(safe-area-inset-bottom);
+  min-height: calc(62px + env(safe-area-inset-bottom));
+  padding: 5px max(18px, calc((100vw - 760px) / 2)) env(safe-area-inset-bottom);
   border-top: 1px solid rgba(255, 255, 255, 0.045);
   background: rgba(23, 25, 24, 0.94);
   backdrop-filter: blur(22px);
@@ -1004,11 +1004,11 @@ button:disabled {
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   border: 0;
   background: transparent;
   color: #888c89;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
 }
 
 .bottom-nav button.active {
@@ -1238,7 +1238,7 @@ button:disabled {
 .settings {
   width: min(100%, 680px);
   margin: 0 auto;
-  padding: max(28px, env(safe-area-inset-top)) 22px calc(118px + env(safe-area-inset-bottom));
+  padding: max(28px, env(safe-area-inset-top)) 22px calc(98px + env(safe-area-inset-bottom));
 }
 
 .settings-head {
