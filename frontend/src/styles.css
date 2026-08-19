@@ -1064,7 +1064,9 @@ button:disabled {
   }
 
   .model-pill {
-    display: none;
+    flex-shrink: 0;
+    padding: 3px 7px;
+    font-size: 0.66rem;
   }
 
   .header-actions {
