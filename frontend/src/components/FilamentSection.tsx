@@ -22,6 +22,16 @@ function amsLetter(id: string | undefined, fallback: number): string {
   return String.fromCharCode(65 + Math.min(25, amsNumber(id, fallback)));
 }
 
+/** Bambu reports the AMS humidity index as 1 (wettest) through 5 (driest). */
+function humidityGrade(raw: string | number | undefined): string {
+  const value = Number(raw);
+  if (Number.isInteger(value) && value >= 1 && value <= 5) {
+    return String.fromCharCode(70 - value);
+  }
+  const text = String(raw ?? "").trim().toUpperCase();
+  return /^[A-E]$/.test(text) ? text : "—";
+}
+
 function trayIsActive(active: string | undefined, unitId: string | undefined, unitIndex: number, tray: AmsTray, slotIndex: number): boolean {
   if (active == null) return false;
   const unit = amsNumber(unitId, unitIndex);
@@ -85,7 +95,7 @@ export function FilamentSection(props: FilamentSectionProps) {
             <span>{trays().length ? `${trays().length} ${selectedExternal() ? "spool" : "slots"} connected` : "No filament data"}</span>
           </div>
           <Show when={!selectedExternal() && amsUnit()?.humidity != null}>
-            <div class="humidity-pill" title="AMS humidity index"><Icon name="droplet" size={17} filled /> {amsUnit()?.humidity}</div>
+            <div class="humidity-pill" title="AMS humidity grade"><Icon name="droplet" size={17} filled /> {humidityGrade(amsUnit()?.humidity)}</div>
           </Show>
         </div>
 
