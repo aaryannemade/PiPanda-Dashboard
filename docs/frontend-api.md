@@ -11,7 +11,7 @@ documents.
 | --- | --- | --- | --- |
 | Header | Printer name, online state, device selector, scan icon | Configuration and MQTT connection | Name and online state |
 | Camera | Live printer image/video and page indicator | Pi Camera Module 3 through go2rtc | Player URL and stream name |
-| Current job | Thumbnail, job name, profile subtitle, percentage, result, progress bar, layer count | Printer MQTT plus Bambu cloud history | Live name, state, progress, time and layers |
+| Current job | Thumbnail, job name, profile subtitle, percentage, result, progress bar, layer count | Printer MQTT plus Bambu cloud history | Live name, state, progress, time and layers, plus plate render and model name from cloud history |
 | Job actions | Print again and five-star rating | Bambu cloud history/model APIs | Advertised as unavailable |
 | Nozzle and extruder | Current and target nozzle temperature, nozzle graphic, detail link | Printer MQTT | Read-only temperatures and nozzle diameter |
 | Motion | XYZ controls and detail link | Printer command protocol | Advertised as unavailable |
@@ -22,10 +22,13 @@ documents.
 | Filament library | Roll count and Add Filament | Bambu cloud filament library | Advertised as unavailable |
 | Navigation | Models, Devices and Me tabs | Frontend routing and Bambu cloud account APIs | Frontend responsibility |
 
-The screenshot's job thumbnail, profile text, success history, print-again action,
-rating control and filament library are not part of the printer's live MQTT
-status. They have nullable values or `available: false` capability flags rather
-than placeholder data.
+The screenshot's success history, print-again action, rating control and filament
+library are not part of the printer's live MQTT status. They have nullable values
+or `available: false` capability flags rather than placeholder data.
+
+The job thumbnail and profile text are not in the MQTT status either, but they
+are recoverable from the account's cloud print history and so are populated when
+a login exists. See [`GET /api/v1/job/thumbnail`](#get-apiv1jobthumbnail).
 
 ## Running the API
 
@@ -85,8 +88,8 @@ Returns the complete frontend bootstrap document:
   },
   "job": {
     "name": "Cute Mini Figurine Pack",
-    "profile": null,
-    "thumbnail_url": null,
+    "profile": "Goofy series – SNAIL Movable Eyes",
+    "thumbnail_url": "/api/v1/job/thumbnail?v=1176981973",
     "state": "RUNNING",
     "result": null,
     "progress_percent": 73,
@@ -139,6 +142,36 @@ always `null` even though its firmware reports a bogus value.
 Returns the complete accumulated Bambu `print` document. This endpoint is for
 diagnostics and forward-compatible frontend experiments; normal UI code should
 use `/api/v1/dashboard`.
+
+### `GET /api/v1/job/thumbnail`
+
+Returns the plate render for the current job as `image/png` (or `image/jpeg` /
+`image/webp`, whichever the cloud stored), and `404` with a `no_thumbnail` error
+code when there is none.
+
+Do not construct this URL by hand: use `job.thumbnail_url` from the dashboard
+document, which carries a `?v=<task id>` query. The response is served
+`immutable` with an `ETag`, so the browser refetches only when the task id
+changes, and conditional requests get a `304`.
+
+The image is not in the printer's MQTT status. It comes from the account's cloud
+print history (`/v1/user-service/my/tasks`), whose `cover` link is a presigned S3
+URL that **expires 30 minutes after it is issued** — which is why the backend
+downloads the bytes and serves them itself rather than passing the link to the
+browser. `job.profile` is resolved from the same record.
+
+Consequences worth knowing:
+
+- Both fields require a cloud login and working internet, even when the printer
+  is reached over LAN transport. Without either they are `null` and the frontend
+  falls back to its placeholder.
+- The lookup runs only when the job name changes, roughly once per print. A
+  failure backs off for about a minute rather than retrying every tick.
+- When a print finishes, the last print's render stays cached, which matches what
+  Handy shows.
+- A print sliced and started entirely offline never reaches the cloud history and
+  so has no render. Pulling the 3MF off the printer over FTPS would cover that
+  case and is not implemented.
 
 ### `GET /api/v1/camera`
 

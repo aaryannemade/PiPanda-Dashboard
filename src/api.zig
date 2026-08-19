@@ -43,6 +43,38 @@ const PendingLogin = struct {
     }
 };
 
+/// The plate render and slicing profile for the current job.
+///
+/// Neither is in the printer's MQTT document. Both come from the cloud task
+/// record, whose `cover` URL is presigned and expires after 30 minutes, so the
+/// image is downloaded once per job and served from memory for as long as that
+/// job is on the bed. One 512x512 PNG is roughly 35 KB.
+const Thumbnail = struct {
+    /// Job name this cache was filled for. A change is what triggers a refresh.
+    job: ?[]u8 = null,
+    bytes: ?[]u8 = null,
+    content_type: []const u8 = "application/octet-stream",
+    /// `/api/v1/job/thumbnail?v=<task id>`. Versioned so a new print busts the
+    /// browser cache while an unchanged one is never re-fetched.
+    url: ?[]u8 = null,
+    profile: ?[]u8 = null,
+    /// ETag value including quotes, matching `url`'s version.
+    etag: ?[]u8 = null,
+    /// Ticks to wait before retrying after a failed lookup, so a printer that
+    /// is offline or an account with no history does not cause a cloud request
+    /// every tick for the rest of the print.
+    retry_in: u32 = 0,
+
+    fn clear(self: *Thumbnail, gpa: Allocator) void {
+        if (self.job) |v| gpa.free(v);
+        if (self.bytes) |v| gpa.free(v);
+        if (self.url) |v| gpa.free(v);
+        if (self.profile) |v| gpa.free(v);
+        if (self.etag) |v| gpa.free(v);
+        self.* = .{};
+    }
+};
+
 /// Everything the server needs to run the printer session and to log in. The
 /// session pointer and the pending login are both mutable at runtime and are
 /// guarded by `auth_mutex`.
@@ -62,11 +94,23 @@ const Context = struct {
     /// Set by the supervisor when credentials appear so it can (re)connect.
     session_wanted: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 
+    /// Guards `thumb`. Never held across a network call: the refresh task does
+    /// its cloud IO unlocked and takes this only to swap the result in.
+    thumb_mutex: Io.Mutex = .init,
+    thumb: Thumbnail = .{},
+
     fn lockAuth(self: *Context) void {
         self.auth_mutex.lock(self.io) catch {};
     }
     fn unlockAuth(self: *Context) void {
         self.auth_mutex.unlock(self.io);
+    }
+
+    fn lockThumb(self: *Context) void {
+        self.thumb_mutex.lock(self.io) catch {};
+    }
+    fn unlockThumb(self: *Context) void {
+        self.thumb_mutex.unlock(self.io);
     }
 };
 
@@ -91,6 +135,9 @@ pub fn serve(
         if (context.session) |session| session.close();
         if (context.pending) |*p| p.deinit(gpa);
         context.unlockAuth();
+        context.lockThumb();
+        context.thumb.clear(gpa);
+        context.unlockThumb();
     }
 
     // If a token and a printer are already on disk, ask the supervisor to bring
@@ -174,6 +221,7 @@ fn runSession(context: *Context, session: *printer.Session) void {
     defer group.cancel(context.io);
 
     group.concurrent(context.io, keepAliveLoop, .{ context, session }) catch return;
+    group.concurrent(context.io, thumbnailLoop, .{ context, session }) catch return;
     // The pump runs inline so this returns as soon as the stream stops.
     while (true) _ = session.pump() catch |err| {
         if (err != error.Canceled) std.log.err("printer status stream stopped: {t}", .{err});
@@ -186,6 +234,128 @@ fn keepAliveLoop(context: *Context, session: *printer.Session) void {
         if (err != error.Canceled) std.log.err("printer keepalive stopped: {t}", .{err});
     };
     _ = context;
+}
+
+/// How often the job name is compared against the cached thumbnail's.
+const thumbnail_tick_ms = 5_000;
+/// Ticks to wait after a failed lookup before trying that job again.
+const thumbnail_retry_ticks = 12;
+
+/// Keeps the cached plate render in step with whatever the printer is doing.
+///
+/// Polling the job name is nearly free (a mutex and a string compare); the
+/// cloud is only consulted when the name actually changes, which is once per
+/// print. The alternative — resolving the cover inside the dashboard handler —
+/// would put a cloud round trip in the path of a request the frontend makes
+/// every second.
+fn thumbnailLoop(context: *Context, session: *printer.Session) void {
+    while (true) {
+        refreshThumbnail(context, session) catch |err| {
+            if (err == error.Canceled) return;
+        };
+        sleepMs(context.io, thumbnail_tick_ms) catch return;
+    }
+}
+
+fn refreshThumbnail(context: *Context, session: *printer.Session) !void {
+    const gpa = context.gpa;
+
+    const job = try session.subtaskName(gpa);
+    defer if (job) |name| gpa.free(name);
+
+    // Decide whether there is anything to do while holding the lock briefly.
+    // A job that has gone away leaves the last print's thumbnail in place: the
+    // dashboard keeps showing what came off the bed, which is what Handy does.
+    context.lockThumb();
+    const current = job orelse {
+        context.unlockThumb();
+        return;
+    };
+    if (context.thumb.job) |cached| {
+        if (std.mem.eql(u8, cached, current)) {
+            context.unlockThumb();
+            return;
+        }
+    }
+    if (context.thumb.retry_in > 0) {
+        context.thumb.retry_in -= 1;
+        context.unlockThumb();
+        return;
+    }
+    // A *different* job is starting, so whatever is cached belongs to the
+    // previous print. Drop it now rather than risk rendering the last print's
+    // plate against this print's name if the lookup below fails.
+    context.thumb.clear(gpa);
+    context.unlockThumb();
+
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // No credentials is the normal state for a LAN-only install that never
+    // logged in. It is not an error, but it does mean no thumbnail.
+    const creds = context.store.load(arena) catch return;
+    const device_id = creds.device_id orelse return;
+
+    var client: cloud.Client = .init(gpa, context.io, creds.region);
+    defer client.deinit();
+
+    const task = client.latestTask(arena, creds.access_token, device_id) catch |err| {
+        log.debug("thumbnail: task lookup failed: {t}", .{err});
+        return backOffThumbnail(context);
+    } orelse {
+        // The account has no history for this printer: nothing to fetch, and
+        // nothing that retrying will fix until the job changes again.
+        log.debug("thumbnail: no cloud task for the current job", .{});
+        return backOffThumbnail(context);
+    };
+
+    const bytes = client.downloadCover(arena, task.cover_url) catch |err| {
+        log.debug("thumbnail: cover download failed: {t}", .{err});
+        return backOffThumbnail(context);
+    };
+
+    // Allocated outside the arena so they outlive this call.
+    const owned_bytes = try gpa.dupe(u8, bytes);
+    errdefer gpa.free(owned_bytes);
+    const owned_job = try gpa.dupe(u8, current);
+    errdefer gpa.free(owned_job);
+    const owned_profile: ?[]u8 = if (jobProfile(task, current)) |p| try gpa.dupe(u8, p) else null;
+    errdefer if (owned_profile) |v| gpa.free(v);
+    const url = try std.fmt.allocPrint(gpa, "/api/v1/job/thumbnail?v={d}", .{task.id});
+    errdefer gpa.free(url);
+    const etag = try std.fmt.allocPrint(gpa, "\"{d}\"", .{task.id});
+
+    context.lockThumb();
+    defer context.unlockThumb();
+    context.thumb.clear(gpa);
+    context.thumb = .{
+        .job = owned_job,
+        .bytes = owned_bytes,
+        .content_type = cloud.imageContentType(owned_bytes) orelse "application/octet-stream",
+        .url = url,
+        .profile = owned_profile,
+        .etag = etag,
+    };
+    std.log.info("job thumbnail cached: task {d}, {d} bytes", .{ task.id, owned_bytes.len });
+}
+
+/// The subtitle shown under the job name.
+///
+/// The task's `title` is normally the job name repeated verbatim, which would
+/// render the same string twice, so the model name is preferred and anything
+/// matching the job name is dropped.
+fn jobProfile(task: cloud.Client.Task, job_name: []const u8) ?[]const u8 {
+    const candidate = if (task.design_title.len != 0) task.design_title else task.title;
+    if (candidate.len == 0) return null;
+    if (std.mem.eql(u8, std.mem.trim(u8, candidate, " "), std.mem.trim(u8, job_name, " "))) return null;
+    return candidate;
+}
+
+fn backOffThumbnail(context: *Context) void {
+    context.lockThumb();
+    defer context.unlockThumb();
+    context.thumb.retry_in = thumbnail_retry_ticks;
 }
 
 /// Connects a fresh session from whatever is on disk. Caller owns the result.
@@ -246,6 +416,7 @@ const Route = enum {
     health,
     dashboard,
     raw_state,
+    job_thumbnail,
     camera,
     light,
     auth_status,
@@ -263,6 +434,7 @@ fn route(target: []const u8) Route {
     if (std.mem.eql(u8, path, "/api/v1/health")) return .health;
     if (std.mem.eql(u8, path, "/api/v1/dashboard")) return .dashboard;
     if (std.mem.eql(u8, path, "/api/v1/printer/state")) return .raw_state;
+    if (std.mem.eql(u8, path, "/api/v1/job/thumbnail")) return .job_thumbnail;
     if (std.mem.eql(u8, path, "/api/v1/camera")) return .camera;
     if (std.mem.eql(u8, path, "/api/v1/controls/light")) return .light;
     if (std.mem.eql(u8, path, "/api/v1/auth/status")) return .auth_status;
@@ -304,6 +476,11 @@ fn serveRequest(request: *std.http.Server.Request, context: *Context) !void {
             if (request.head.method != .GET and request.head.method != .HEAD)
                 return methodNotAllowed(request, "GET, HEAD, OPTIONS");
             return serveRawState(request, context);
+        },
+        .job_thumbnail => {
+            if (request.head.method != .GET and request.head.method != .HEAD)
+                return methodNotAllowed(request, "GET, HEAD, OPTIONS");
+            return serveThumbnail(request, context);
         },
         .camera => {
             if (request.head.method != .GET and request.head.method != .HEAD)
@@ -372,15 +549,80 @@ fn serveDashboard(request: *std.http.Server.Request, context: *Context) !void {
     const active = session orelse
         return respondError(request, .service_unavailable, "not_connected", "not logged in or no printer selected");
 
+    // Held across the projection so the refresh task cannot free these strings
+    // mid-serialisation. Both critical sections are free of IO, so this cannot
+    // stall: the cloud fetch happens before the refresh task takes the lock.
+    context.lockThumb();
+    defer context.unlockThumb();
+
     const body = try active.dashboardJson(context.gpa, .{
         .device_id = active.device_id,
         .name = context.options.printer_name,
         .model = context.options.printer_model,
         .camera_url = context.options.camera_url,
         .online = context.online.load(.acquire),
+        .thumbnail_url = context.thumb.url,
+        .job_profile = context.thumb.profile,
     });
     defer context.gpa.free(body);
     return respondJson(request, body, .ok);
+}
+
+/// Serves the cached plate render. The bytes are copied out under the lock so a
+/// slow client cannot hold up the refresh task while the response drains.
+fn serveThumbnail(request: *std.http.Server.Request, context: *Context) !void {
+    context.lockThumb();
+    const cached = context.thumb.bytes;
+    const content_type = context.thumb.content_type;
+    const body = if (cached) |bytes| try context.gpa.dupe(u8, bytes) else null;
+    const etag = if (context.thumb.etag) |tag| try context.gpa.dupe(u8, tag) else null;
+    context.unlockThumb();
+
+    defer if (body) |b| context.gpa.free(b);
+    defer if (etag) |e| context.gpa.free(e);
+
+    const bytes = body orelse return respondError(
+        request,
+        .not_found,
+        "no_thumbnail",
+        "no plate render for the current job",
+    );
+
+    const tag = etag orelse "";
+    if (requestHeader(request, "if-none-match")) |candidate| {
+        if (tag.len != 0 and std.mem.eql(u8, candidate, tag)) {
+            return request.respond("", .{
+                .status = .not_modified,
+                .extra_headers = &.{
+                    .{ .name = "etag", .value = tag },
+                    .{ .name = "cache-control", .value = thumbnail_cache_control },
+                    .{ .name = "access-control-allow-origin", .value = "*" },
+                },
+            });
+        }
+    }
+
+    return request.respond(bytes, .{
+        .status = .ok,
+        .extra_headers = &.{
+            .{ .name = "content-type", .value = content_type },
+            // The URL carries the task id, so a cached copy is only ever valid
+            // for the print it was fetched for.
+            .{ .name = "cache-control", .value = thumbnail_cache_control },
+            .{ .name = "etag", .value = tag },
+            .{ .name = "access-control-allow-origin", .value = "*" },
+        },
+    });
+}
+
+const thumbnail_cache_control = "public, max-age=86400, immutable";
+
+fn requestHeader(request: *std.http.Server.Request, name: []const u8) ?[]const u8 {
+    var it = request.iterateHeaders();
+    while (it.next()) |header| {
+        if (std.ascii.eqlIgnoreCase(header.name, name)) return header.value;
+    }
+    return null;
 }
 
 fn serveRawState(request: *std.http.Server.Request, context: *Context) !void {
@@ -776,6 +1018,11 @@ fn authLogout(request: *std.http.Server.Request, context: *Context) !void {
     context.unlockAuth();
     context.online.store(false, .release);
 
+    // Otherwise the next account to log in inherits this one's plate render.
+    context.lockThumb();
+    context.thumb.clear(context.gpa);
+    context.unlockThumb();
+
     context.store.delete(context.gpa) catch |err| switch (err) {
         error.NotFound => {},
         else => return respondError(request, .internal_server_error, "logout_failed", "could not remove stored credentials"),
@@ -914,11 +1161,41 @@ fn respondErrorKeepAlive(
 test route {
     try std.testing.expectEqual(Route.dashboard, route("/api/v1/dashboard"));
     try std.testing.expectEqual(Route.dashboard, route("/api/v1/dashboard?refresh=false"));
+    try std.testing.expectEqual(Route.job_thumbnail, route("/api/v1/job/thumbnail"));
+    // The version query is what busts the browser cache between prints.
+    try std.testing.expectEqual(Route.job_thumbnail, route("/api/v1/job/thumbnail?v=1176981973"));
     try std.testing.expectEqual(Route.light, route("/api/v1/controls/light"));
     try std.testing.expectEqual(Route.auth_login, route("/api/v1/auth/login"));
     try std.testing.expectEqual(Route.auth_status, route("/api/v1/auth/status"));
     try std.testing.expectEqual(Route.auth_devices, route("/api/v1/auth/devices"));
     try std.testing.expectEqual(Route.unknown, route("/api/v1/nope"));
+}
+
+test jobProfile {
+    const job = "1plate 4color AMS0.16mm layer, 2 walls, 7% infill ";
+    // The real shape of a MakerWorld print: title repeats the job name, so the
+    // model name is the only useful subtitle.
+    try std.testing.expectEqualStrings("Goofy series – SNAIL Movable Eyes", jobProfile(.{
+        .id = 1,
+        .title = job,
+        .design_title = "Goofy series – SNAIL Movable Eyes",
+        .cover_url = "https://example/cover.png",
+    }, job).?);
+    // A plate sliced from scratch has no design; the title would only duplicate
+    // the name, trailing space and all.
+    try std.testing.expect(jobProfile(.{
+        .id = 1,
+        .title = job,
+        .design_title = "",
+        .cover_url = "https://example/cover.png",
+    }, job) == null);
+    // A title that genuinely differs is still better than nothing.
+    try std.testing.expectEqualStrings("Benchy plate", jobProfile(.{
+        .id = 1,
+        .title = "Benchy plate",
+        .design_title = "",
+        .cover_url = "https://example/cover.png",
+    }, job).?);
 }
 
 test parseLightBody {

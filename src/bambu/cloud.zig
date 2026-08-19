@@ -30,6 +30,7 @@ const Endpoint = enum {
     tfa_login,
     preference,
     bind,
+    tasks,
 
     /// The China region is the same API with `.com` swapped for `.cn`.
     fn url(e: Endpoint, region: Region) []const u8 {
@@ -41,6 +42,7 @@ const Endpoint = enum {
                 .tfa_login => "https://bambulab.com/api/sign-in/tfa",
                 .preference => "https://api.bambulab.com/v1/design-user-service/my/preference",
                 .bind => "https://api.bambulab.com/v1/iot-service/api/user/bind",
+                .tasks => "https://api.bambulab.com/v1/user-service/my/tasks",
             },
             .china => switch (e) {
                 .login => "https://api.bambulab.cn/v1/user-service/user/login",
@@ -49,6 +51,7 @@ const Endpoint = enum {
                 .tfa_login => "https://bambulab.cn/api/sign-in/tfa",
                 .preference => "https://api.bambulab.cn/v1/design-user-service/my/preference",
                 .bind => "https://api.bambulab.cn/v1/iot-service/api/user/bind",
+                .tasks => "https://api.bambulab.cn/v1/user-service/my/tasks",
             },
         };
     }
@@ -133,6 +136,12 @@ pub const Client = struct {
         }
     };
 
+    /// JSON replies are small. A larger one means a Cloudflare interstitial or
+    /// a bug, and an unbounded read would be an OOM on a 512 MB Pi.
+    const json_limit: Io.Limit = .limited(1024 * 1024);
+    /// Plate thumbnails are ~35 KB at 512x512; this is deliberately generous.
+    const image_limit: Io.Limit = .limited(4 * 1024 * 1024);
+
     /// Issues one request. Everything returned is allocated in `arena`.
     fn send(
         self: *Client,
@@ -141,6 +150,7 @@ pub const Client = struct {
         url: []const u8,
         json_body: ?[]const u8,
         bearer: ?[]const u8,
+        limit: Io.Limit,
     ) Error!Reply {
         const uri = std.Uri.parse(url) catch return error.UnexpectedResponse;
 
@@ -193,7 +203,6 @@ pub const Client = struct {
             }
         }
 
-        var collected: Io.Writer.Allocating = .init(arena);
         var transfer_buffer: [64]u8 = undefined;
         var decompress: std.http.Decompress = undefined;
         var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
@@ -202,9 +211,13 @@ pub const Client = struct {
             &decompress,
             &decompress_buffer,
         );
-        _ = body_reader.streamRemaining(&collected.writer) catch return error.HttpRequestFailed;
-
-        const body = collected.written();
+        const body = body_reader.allocRemaining(arena, limit) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            // A reply past the cap is not something we can interpret, and
+            // truncating it would be worse than refusing it.
+            error.StreamTooLong => return error.UnexpectedResponse,
+            else => return error.HttpRequestFailed,
+        };
 
         log.debug("http {s} {s} -> {d} ({d} bytes, encoding {s})", .{
             @tagName(method),
@@ -254,7 +267,7 @@ pub const Client = struct {
             .apiError = "",
         }, .{});
 
-        const reply = try self.send(arena, .POST, Endpoint.login.url(self.region), payload, null);
+        const reply = try self.send(arena, .POST, Endpoint.login.url(self.region), payload, null, json_limit);
         if (!reply.ok()) {
             if (reply.status == .unauthorized or reply.status == .bad_request) {
                 return error.InvalidCredentials;
@@ -305,7 +318,7 @@ pub const Client = struct {
                 .type = "codeLogin",
             }, .{});
 
-        const reply = try self.send(arena, .POST, endpoint.url(self.region), payload, null);
+        const reply = try self.send(arena, .POST, endpoint.url(self.region), payload, null, json_limit);
         if (!reply.ok()) return error.HttpRequestFailed;
     }
 
@@ -321,7 +334,7 @@ pub const Client = struct {
             .code = code,
         }, .{});
 
-        const reply = try self.send(arena, .POST, Endpoint.login.url(self.region), payload, null);
+        const reply = try self.send(arena, .POST, Endpoint.login.url(self.region), payload, null, json_limit);
 
         const parsed = std.json.parseFromSlice(std.json.Value, arena, reply.body, .{}) catch
             return error.UnexpectedResponse;
@@ -364,7 +377,7 @@ pub const Client = struct {
             .tfaCode = tfa_code,
         }, .{});
 
-        const reply = try self.send(arena, .POST, Endpoint.tfa_login.url(self.region), payload, null);
+        const reply = try self.send(arena, .POST, Endpoint.tfa_login.url(self.region), payload, null, json_limit);
         if (!reply.ok()) return error.InvalidCredentials;
         return reply.token_cookie orelse error.UnexpectedResponse;
     }
@@ -384,6 +397,7 @@ pub const Client = struct {
             Endpoint.preference.url(self.region),
             null,
             access_token,
+            json_limit,
         );
         if (!reply.ok()) return error.InvalidCredentials;
 
@@ -412,7 +426,7 @@ pub const Client = struct {
 
     /// Printers bound to the account.
     pub fn devices(self: *Client, arena: Allocator, access_token: []const u8) Error![]Device {
-        const reply = try self.send(arena, .GET, Endpoint.bind.url(self.region), null, access_token);
+        const reply = try self.send(arena, .GET, Endpoint.bind.url(self.region), null, access_token, json_limit);
         if (!reply.ok()) return error.InvalidCredentials;
 
         const parsed = std.json.parseFromSlice(std.json.Value, arena, reply.body, .{}) catch
@@ -464,7 +478,97 @@ pub const Client = struct {
         }
         return out.items;
     }
+
+    /// One entry from the account's print history. The printer's own MQTT
+    /// status carries no thumbnail and no slicing profile, so the only source
+    /// for either is the cloud task record.
+    pub const Task = struct {
+        /// Cloud task id. Stable per print, so it doubles as a cache key.
+        id: i64,
+        /// The print job name. Usually byte-identical to MQTT's `subtask_name`
+        /// (e.g. "1plate 4color AMS0.16mm layer, 2 walls, 7% infill"), so it is
+        /// a poor subtitle — see `design_title`.
+        title: []const u8,
+        /// The source model's name, e.g. "Goofy series – SNAIL Movable Eyes".
+        /// Empty for a plate sliced from scratch rather than from MakerWorld.
+        design_title: []const u8,
+        /// Presigned S3 URL for the plate render. **Expires after 30 minutes**
+        /// (`X-Amz-Expires=1800`), so it must be downloaded server-side rather
+        /// than handed to a browser that may hold the page open for hours.
+        cover_url: []const u8,
+    };
+
+    /// The most recent print task for one printer, or null when the account has
+    /// no history for it. `device_id` is filtered server-side.
+    pub fn latestTask(
+        self: *Client,
+        arena: Allocator,
+        access_token: []const u8,
+        device_id: []const u8,
+    ) Error!?Task {
+        const url = try std.fmt.allocPrint(
+            arena,
+            "{s}?deviceId={s}&limit=1",
+            .{ Endpoint.tasks.url(self.region), device_id },
+        );
+        const reply = try self.send(arena, .GET, url, null, access_token, json_limit);
+        if (reply.status == .unauthorized) return error.InvalidCredentials;
+        if (!reply.ok()) return error.UnexpectedResponse;
+
+        const parsed = std.json.parseFromSlice(std.json.Value, arena, reply.body, .{}) catch
+            return error.UnexpectedResponse;
+        const obj = switch (parsed.value) {
+            .object => |o| o,
+            else => return error.UnexpectedResponse,
+        };
+        const hits = switch (obj.get("hits") orelse return error.UnexpectedResponse) {
+            .array => |a| a,
+            // An account with no print history returns null rather than [].
+            .null => return null,
+            else => return error.UnexpectedResponse,
+        };
+        if (hits.items.len == 0) return null;
+
+        const hit = switch (hits.items[0]) {
+            .object => |o| o,
+            else => return error.UnexpectedResponse,
+        };
+        const cover = stringField(hit, "cover") orelse return null;
+        if (cover.len == 0) return null;
+
+        return .{
+            .id = integerField(hit, "id") orelse return null,
+            .title = stringField(hit, "title") orelse "",
+            .design_title = stringField(hit, "designTitle") orelse "",
+            .cover_url = cover,
+        };
+    }
+
+    /// Downloads a plate render. No bearer token: the cover URL is presigned,
+    /// and S3 rejects a request carrying both signature and Authorization.
+    ///
+    /// Returns the bytes only if they are a recognisable image. S3 serves these
+    /// as `binary/octet-stream`, so the content type it reports is worthless
+    /// and the magic number is the only trustworthy signal.
+    pub fn downloadCover(self: *Client, arena: Allocator, url: []const u8) Error![]const u8 {
+        const reply = try self.send(arena, .GET, url, null, null, image_limit);
+        if (!reply.ok()) return error.UnexpectedResponse;
+        if (imageContentType(reply.body) == null) return error.UnexpectedResponse;
+        return reply.body;
+    }
 };
+
+/// Sniffs the handful of formats Bambu has been seen to serve plate renders in.
+/// Returning the media type here keeps the guess in one place, next to the
+/// evidence for it.
+pub fn imageContentType(bytes: []const u8) ?[]const u8 {
+    if (std.mem.startsWith(u8, bytes, "\x89PNG\r\n\x1a\n")) return "image/png";
+    if (std.mem.startsWith(u8, bytes, "\xff\xd8\xff")) return "image/jpeg";
+    if (bytes.len >= 12 and
+        std.mem.startsWith(u8, bytes, "RIFF") and
+        std.mem.eql(u8, bytes[8..12], "WEBP")) return "image/webp";
+    return null;
+}
 
 fn stringField(obj: std.json.ObjectMap, name: []const u8) ?[]const u8 {
     return switch (obj.get(name) orelse return null) {
@@ -519,6 +623,17 @@ test parseCookie {
     );
     try std.testing.expect(parseCookie("other=abc123; Path=/", "token") == null);
     try std.testing.expect(parseCookie("token=; Path=/", "token") == null);
+}
+
+test imageContentType {
+    try std.testing.expectEqualStrings("image/png", imageContentType("\x89PNG\r\n\x1a\n....").?);
+    try std.testing.expectEqualStrings("image/jpeg", imageContentType("\xff\xd8\xff\xe0..").?);
+    try std.testing.expectEqualStrings("image/webp", imageContentType("RIFF\x00\x00\x00\x00WEBPVP8 ").?);
+    // S3 hands these back as binary/octet-stream, so an HTML error page or a
+    // truncated body must not be mistaken for an image.
+    try std.testing.expect(imageContentType("<!DOCTYPE html>") == null);
+    try std.testing.expect(imageContentType("") == null);
+    try std.testing.expect(imageContentType("RIFF") == null);
 }
 
 test usernameFromJwt {

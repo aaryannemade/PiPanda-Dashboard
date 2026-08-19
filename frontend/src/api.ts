@@ -2,6 +2,16 @@ import type { AuthStatus, Dashboard, Device, LoginResult } from "./types";
 
 const apiBase = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 
+/**
+ * Resolves a server-supplied API path (such as `job.thumbnail_url`) against the
+ * configured base. Those paths are root-relative, which is correct behind the
+ * Pi's nginx and through the Vite proxy, but wrong when the API lives on
+ * another origin.
+ */
+export function apiUrl(path: string): string {
+  return path.startsWith("/") ? `${apiBase}${path}` : path;
+}
+
 /** Carries the backend's machine-readable error code alongside its message. */
 export class ApiError extends Error {
   readonly code: string;

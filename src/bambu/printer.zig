@@ -240,6 +240,16 @@ pub const Session = struct {
         return self.status.dashboardJson(gpa, meta);
     }
 
+    /// The current job name, duplicated so it survives the next status merge
+    /// (which frees the accumulated document's arena every 512 reports).
+    /// Null when the printer has never reported a job. Caller owns the result.
+    pub fn subtaskName(self: *Session, gpa: Allocator) !?[]u8 {
+        self.status_mutex.lock(self.io) catch return error.Canceled;
+        defer self.status_mutex.unlock(self.io);
+        const name = self.status.snapshot().subtask_name orelse return null;
+        return try gpa.dupe(u8, name);
+    }
+
     fn sendCommand(self: *Session, payload: anytype) CommandError!void {
         const json = try std.json.Stringify.valueAlloc(self.gpa, payload, .{});
         defer self.gpa.free(json);

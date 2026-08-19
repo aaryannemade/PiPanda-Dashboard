@@ -113,6 +113,12 @@ pub const Status = struct {
         model: []const u8,
         camera_url: []const u8,
         online: bool,
+        /// Path to the cached plate render, or null when there is none. Neither
+        /// this nor `job_profile` is in the printer's MQTT document: both come
+        /// from the cloud task record and are resolved by the caller, which
+        /// keeps this projection free of IO.
+        thumbnail_url: ?[]const u8 = null,
+        job_profile: ?[]const u8 = null,
     };
 
     /// Serialises the stable, frontend-facing projection of the accumulated
@@ -143,8 +149,8 @@ pub const Status = struct {
             },
             .job = .{
                 .name = snap.subtask_name,
-                .profile = @as(?[]const u8, null),
-                .thumbnail_url = @as(?[]const u8, null),
+                .profile = meta.job_profile,
+                .thumbnail_url = meta.thumbnail_url,
                 .state = snap.gcode_state,
                 .result = jobResult(snap.gcode_state),
                 .progress_percent = snap.print_percent,
@@ -455,6 +461,10 @@ test "dashboard projection exposes supported and unavailable Handy fields" {
     const root = parsed.value.object;
     try std.testing.expectEqualStrings("Panda", root.get("printer").?.object.get("name").?.string);
     try std.testing.expectEqualStrings("success", root.get("job").?.object.get("result").?.string);
+    // Absent cloud metadata stays explicitly null rather than being omitted, so
+    // the frontend can tell "no thumbnail" from "field not implemented".
+    try std.testing.expectEqual(Value.null, root.get("job").?.object.get("thumbnail_url").?);
+    try std.testing.expectEqual(Value.null, root.get("job").?.object.get("profile").?);
     try std.testing.expect(root.get("controls").?.object.get("light").?.object.get("on").?.bool);
     try std.testing.expect(!root.get("capabilities").?.object.get("motion_control").?.bool);
     try std.testing.expectEqualStrings(
@@ -462,4 +472,35 @@ test "dashboard projection exposes supported and unavailable Handy fields" {
         root.get("filament").?.object.get("ams").?.object.get("ams").?.array.items[0].object
             .get("tray").?.array.items[0].object.get("tray_type").?.string,
     );
+}
+
+test "dashboard projection carries cloud job metadata when the caller resolved it" {
+    var status = try Status.init(std.testing.allocator);
+    defer status.deinit();
+
+    _ = try status.apply(
+        \\{"print":{"gcode_state":"RUNNING","subtask_name":"Benchy","mc_percent":42}}
+    );
+
+    const json = try status.dashboardJson(std.testing.allocator, .{
+        .device_id = "01P00A",
+        .name = "Panda",
+        .model = "P1S",
+        .camera_url = "/camera/p1s",
+        .online = true,
+        .thumbnail_url = "/api/v1/job/thumbnail?v=1176981973",
+        .job_profile = "0.16mm layer, 2 walls, 15% infill",
+    });
+    defer std.testing.allocator.free(json);
+
+    const parsed = try std.json.parseFromSlice(Value, std.testing.allocator, json, .{});
+    defer parsed.deinit();
+    const job = parsed.value.object.get("job").?.object;
+    try std.testing.expectEqualStrings(
+        "/api/v1/job/thumbnail?v=1176981973",
+        job.get("thumbnail_url").?.string,
+    );
+    try std.testing.expectEqualStrings("0.16mm layer, 2 walls, 15% infill", job.get("profile").?.string);
+    // The job name still comes from MQTT, not from the task record.
+    try std.testing.expectEqualStrings("Benchy", job.get("name").?.string);
 }

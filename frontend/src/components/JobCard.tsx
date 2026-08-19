@@ -1,5 +1,6 @@
 import { Show, createMemo } from "solid-js";
 import type { Dashboard } from "../types";
+import { apiUrl } from "../api";
 import { Icon } from "./Icon";
 
 interface JobCardProps {
@@ -35,7 +36,7 @@ export function JobCard(props: JobCardProps) {
       <div class="job-main">
         <div class="print-preview">
           <Show when={props.job.thumbnail_url} fallback={<div class="preview-model"><Icon name="cube" size={48} /></div>}>
-            {(url) => <img src={url()} alt="Print preview" />}
+            {(url) => <img src={apiUrl(url())} alt="Print preview" />}
           </Show>
         </div>
         <div class="job-copy">
