@@ -486,7 +486,7 @@ button:disabled {
 
 .interactive-panel,
 .card-open-button,
-.telemetry-strip > button {
+.telemetry-strip {
   cursor: pointer;
 }
 
@@ -495,7 +495,8 @@ button:disabled {
 }
 
 .interactive-panel:hover,
-.interactive-panel:focus-visible {
+.interactive-panel:focus-visible,
+.light-card:has(.card-open-button:focus-visible) {
   border-color: rgba(0, 229, 139, 0.24);
   background: #1c201e;
   outline: none;
@@ -522,18 +523,33 @@ button:disabled {
 
 .temperature-reading {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.temperature-zones {
+  display: grid;
+  gap: 20px;
+}
+
+.temperature-zone > span {
+  display: block;
+  margin-bottom: 6px;
+  color: #777c78;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .temperature-reading strong {
-  font: 500 2.7rem/1 "Manrope", sans-serif;
+  font: 500 2.25rem/1 "Manrope", sans-serif;
   letter-spacing: -0.06em;
 }
 
-.temperature-reading span {
-  margin-top: 8px;
+.temperature-reading small {
   color: #929693;
-  font-size: 1.1rem;
+  font-size: 0.82rem;
 }
 
 .nozzle-visual {
@@ -600,26 +616,25 @@ button:disabled {
 }
 
 .card-open-button {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: flex;
   min-width: 0;
-  padding: 0;
+  padding: 19px 92px 19px 19px;
   border: 0;
+  border-radius: inherit;
   background: transparent;
   color: inherit;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
   font: inherit;
   text-align: left;
 }
 
 .card-open-button:focus-visible {
-  outline: 2px solid var(--green-bright);
-  outline-offset: 6px;
-  border-radius: 4px;
-}
-
-.card-open-hint {
-  display: block;
-  margin-top: 8px;
-  color: var(--green-bright);
-  font-size: 0.68rem;
+  outline: none;
 }
 
 .motion-card strong,
@@ -637,13 +652,23 @@ button:disabled {
 }
 
 .light-card {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
+.light-card > .switch {
+  margin-left: auto;
+}
+
+.light-card:has(.switch:active) {
+  transform: none;
+}
+
 .switch {
   position: relative;
+  z-index: 2;
   width: 58px;
   height: 34px;
   padding: 0;
@@ -684,13 +709,13 @@ button:disabled {
 
 .telemetry-strip {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   margin-top: 16px;
   padding: 15px 12px;
   border-radius: 17px;
 }
 
-.telemetry-strip > button {
+.telemetry-strip > div {
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
@@ -698,27 +723,10 @@ button:disabled {
   min-width: 0;
   padding: 0 14px;
   border-right: 1px solid var(--line);
-  border-top: 0;
-  border-bottom: 0;
-  border-left: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
 }
 
-.telemetry-strip > button:last-child {
+.telemetry-strip > div:last-child {
   border-right: 0;
-}
-
-.telemetry-strip > button:hover span,
-.telemetry-strip > button:focus-visible span {
-  color: var(--green-bright);
-}
-
-.telemetry-strip > button:focus-visible {
-  outline: 2px solid var(--green-bright);
-  outline-offset: 5px;
-  border-radius: 6px;
 }
 
 .telemetry-strip svg {
@@ -1115,7 +1123,7 @@ button:disabled {
   }
 
   .temperature-reading strong {
-    font-size: 2.25rem;
+    font-size: 1.85rem;
   }
 
   .nozzle-visual {
@@ -1128,6 +1136,10 @@ button:disabled {
   .light-card {
     min-height: 126px;
     padding: 15px;
+  }
+
+  .card-open-button {
+    padding: 15px 78px 15px 15px;
   }
 
   .motion-card strong,
@@ -1150,12 +1162,7 @@ button:disabled {
   }
 
   .telemetry-strip {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 13px 0;
-  }
-
-  .telemetry-strip > button:nth-child(2) {
-    border-right: 0;
+    grid-template-columns: repeat(3, 1fr);
   }
 
   .spool-grid {

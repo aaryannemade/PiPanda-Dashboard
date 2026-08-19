@@ -33,11 +33,23 @@ export function DeviceControls(props: DeviceControlsProps) {
             props.onOpenHomeAssistant("temperature");
           }}
         >
-          <div class="card-label">Nozzle &amp; Extruder</div>
+          <div class="card-label">Temperature</div>
           <div class="nozzle-content">
-            <div class="temperature-reading">
-              <strong>{measurement(props.controls.temperatures.nozzle.current)}</strong>
-              <span>/{measurement(props.controls.temperatures.nozzle.target, "°C")}</span>
+            <div class="temperature-zones">
+              <div class="temperature-zone">
+                <span>Nozzle</span>
+                <div class="temperature-reading">
+                  <strong>{measurement(props.controls.temperatures.nozzle.current)}</strong>
+                  <small>/{measurement(props.controls.temperatures.nozzle.target, "°C")}</small>
+                </div>
+              </div>
+              <div class="temperature-zone">
+                <span>Bed</span>
+                <div class="temperature-reading">
+                  <strong>{measurement(props.controls.temperatures.bed.current)}</strong>
+                  <small>/{measurement(props.controls.temperatures.bed.target, "°C")}</small>
+                </div>
+              </div>
             </div>
             <div class="nozzle-visual" aria-hidden="true">
               <span class="filament-line" />
@@ -49,11 +61,10 @@ export function DeviceControls(props: DeviceControlsProps) {
         </article>
 
         <div class="control-stack">
-          <article class="light-card panel">
+          <article class="light-card panel interactive-panel">
             <button type="button" class="card-open-button" onClick={() => props.onOpenHomeAssistant("light")}>
               <span class="card-label">Light</span>
               <strong>{props.controls.light.on == null ? "Unknown" : props.lightOn ? "On" : "Off"}</strong>
-              <span class="card-open-hint">Home lights</span>
             </button>
             <button
               class="switch"
@@ -74,12 +85,21 @@ export function DeviceControls(props: DeviceControlsProps) {
         </div>
       </div>
 
-        <div class="telemetry-strip panel">
-          <button type="button" onClick={() => props.onOpenHomeAssistant("temperature")}><Icon name="thermometer" size={20} /><span>Bed</span><strong>{measurement(props.controls.temperatures.bed.current, "°")}</strong></button>
-          <button type="button" onClick={() => props.onOpenHomeAssistant("fan")}><Icon name="fan" size={20} /><span>Part</span><strong>{measurement(props.controls.fans.cooling_percent, "%")}</strong></button>
-          <button type="button" onClick={() => props.onOpenHomeAssistant("fan")}><Icon name="fan" size={20} /><span>Aux</span><strong>{measurement(props.controls.fans.aux_percent, "%")}</strong></button>
-          <button type="button" onClick={() => props.onOpenHomeAssistant("fan")}><Icon name="fan" size={20} /><span>Chamber</span><strong>{measurement(props.controls.fans.chamber_percent, "%")}</strong></button>
-        </div>
+      <div
+        class="telemetry-strip panel interactive-panel"
+        role="button"
+        tabIndex={0}
+        onClick={() => props.onOpenHomeAssistant("fan")}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          props.onOpenHomeAssistant("fan");
+        }}
+      >
+        <div><Icon name="fan" size={20} /><span>Part</span><strong>{measurement(props.controls.fans.cooling_percent, "%")}</strong></div>
+        <div><Icon name="fan" size={20} /><span>Aux</span><strong>{measurement(props.controls.fans.aux_percent, "%")}</strong></div>
+        <div><Icon name="fan" size={20} /><span>Chamber</span><strong>{measurement(props.controls.fans.chamber_percent, "%")}</strong></div>
+      </div>
     </section>
   );
 }
