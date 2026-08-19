@@ -12,8 +12,9 @@ const Allocator = std.mem.Allocator;
 const cloud = @import("cloud.zig");
 
 /// `rw-------`. The token is equivalent to the account password for API
-/// purposes.
-const private_file: Io.File.Permissions = if (builtin.os.tag == .windows)
+/// purposes. Shared with the Home Assistant store, which keeps a credential of
+/// the same weight in the same directory.
+pub const private_file: Io.File.Permissions = if (builtin.os.tag == .windows)
     .default_file
 else
     @enumFromInt(0o600);

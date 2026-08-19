@@ -66,8 +66,8 @@ Model-suggested pre-0.16 std APIs will not compile. Check an existing call site
 - `src/api.zig` — HTTP API on `/api/v1/*`; routes are matched in `route()` and each
   new route needs an entry in the `Route` enum plus the routing test.
 - `frontend/src` — SolidJS (not React); `api.ts` client, `lib/dashboard.ts` projection,
-  `components/`. Vite proxies `/api` to `127.0.0.1:8080`; set `VITE_API_BASE` only for
-  cross-origin deployments.
+  `components/`. Vite proxies `/api` to `127.0.0.1:8080`. Browser API requests are
+  same-origin only (no wildcard CORS); use a reverse-proxy path, not another origin.
 - `deploy/pi-os/` — installer, systemd units, nginx site, go2rtc config.
 - `docs/frontend-api.md` — endpoint contract, env var table, capability flags.
 
@@ -120,5 +120,11 @@ fixed by running `login` again, not by writing refresh logic.
 ## Known gaps (from README, still true)
 
 Reconnection is not automatic (`watch` exits on drop); authenticator-app login is
-implemented but untested; timelapse recording and the Home Assistant integration
-are not started.
+implemented but untested; timelapse recording is not started. The Home Assistant
+integration lives in `src/homeassistant.zig` and `/api/v1/integrations/homeassistant*`;
+entity reads are on-demand (modal open/refresh), never part of the 1-second printer
+dashboard poll. Control endpoints only accept entities in their configured group.
+
+Job thumbnails and `job.profile` come from the cloud task record, not MQTT, so
+they need a Bambu login even in LAN transport; the `cover` URL is presigned and
+expires in 30 minutes, which is why the bytes are cached server-side.

@@ -10,6 +10,7 @@ import {
   submitTfaCode,
 } from "../api";
 import type { AuthStatus, LoginResult } from "../types";
+import { HomeAssistantCard } from "./HomeAssistantCard";
 import { Icon } from "./Icon";
 
 /** Which login sub-form is shown. Driven by the backend's LoginResult. */
@@ -286,6 +287,13 @@ export function SettingsPage() {
           </Match>
         </Switch>
       </section>
+
+      {/* Only offered once the Bambu account is signed in: the printer is the
+          reason this dashboard exists, and an empty device screen with a home
+          automation form on it would be a confusing first run. */}
+      <Show when={status()?.authenticated}>
+        <HomeAssistantCard />
+      </Show>
     </main>
   );
 }

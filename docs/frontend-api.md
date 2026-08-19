@@ -60,7 +60,10 @@ requires running `login` first.
 
 The API still has no access control of its own. Keep it on loopback and expose
 it through an authenticated reverse proxy rather than binding it directly to an
-untrusted network — the auth routes hand out and revoke the Bambu access token.
+untrusted network. Browser calls are same-origin only: the API sends no wildcard
+CORS header, because cross-origin access would let an unrelated web page operate
+configured printer and Home Assistant controls. Use a reverse-proxy path rather
+than a separate browser origin.
 
 ## Endpoints
 
@@ -206,6 +209,150 @@ The response is HTTP 202:
 Accepted means the QoS 1 MQTT command was published. It does not claim the
 printer applied the command; the frontend should use the next dashboard state
 update as confirmation.
+
+## Home Assistant integration endpoints
+
+These endpoints store where Home Assistant is, a long-lived access token, and
+which entities the user cares about. Dashboard modals read temperatures and
+control lights and fans on demand.
+
+The token is a full-access credential for the user's home, so it is written
+`0600` to `homeassistant.json` in the state directory and **is never returned by
+any endpoint**. It lives in its own file rather than in `credentials.json`:
+signing out of Bambu Lab must not discard the home automation setup.
+
+### `GET /api/v1/integrations/homeassistant`
+
+```json
+{
+  "configured": true,
+  "base_url": "http://homeassistant.local:8123",
+  "entities": {
+    "light": ["light.kitchen_ceiling", "switch.desk_lamp"],
+    "temperature": ["sensor.office_temperature"],
+    "fan": ["fan.enclosure_extractor"]
+  }
+}
+```
+
+A corrupt or absent config reports `configured: false` rather than failing, so a
+bad file cannot make the settings page unusable.
+
+### `POST /api/v1/integrations/homeassistant`
+
+```json
+{
+  "base_url": "http://homeassistant.local:8123",
+  "token": "eyJhbGciOi…",
+  "entities": { "light": [], "temperature": [], "fan": [] }
+}
+```
+
+The connection is probed with `GET {base_url}/api/` **before** anything is
+written, so a success response means the URL and token genuinely work rather
+than merely that they were stored.
+
+- `base_url` is normalised to a bare origin, so a trailing slash or a pasted
+  `/lovelace/0` path is accepted.
+- `token` may be omitted when editing entities at the same URL, which keeps the
+  stored token. It is required the first time **and whenever the URL changes**;
+  this prevents a caller from redirecting a stored bearer credential to another
+  host.
+- The grouping into `light` / `temperature` / `fan` is the user's, not Home
+  Assistant's, so any domain is accepted: a bulb may be a `light.*` or a
+  `switch.*`. Only the `domain.object_id` shape is enforced, and each group is
+  capped at 64 entities.
+
+Errors: `invalid_url`, `invalid_entity_id`, `duplicate_entity`,
+`too_many_entities`, `missing_token`, and, from the probe, `ha_unauthorized`, `ha_unreachable` or
+`ha_unexpected_response` as HTTP 502.
+
+### `POST /api/v1/integrations/homeassistant/test`
+
+Re-probes the stored configuration and returns `{"ok": true}`, so the settings
+page can offer a connection test without the user re-entering the token.
+Responds `409 not_configured` when nothing is stored.
+
+### `POST /api/v1/integrations/homeassistant/disconnect`
+
+Deletes the stored configuration. Succeeds even when there was nothing to
+remove.
+
+### `GET /api/v1/integrations/homeassistant/entities`
+
+Fetches Home Assistant's `/api/states` registry on demand and returns only the
+configured entities. This endpoint is called when an entity modal opens or is
+refreshed; it is deliberately **not** part of `/api/v1/dashboard`, so an offline
+Home Assistant cannot delay the printer's one-second status poll.
+
+```json
+{
+  "entities": [
+    {
+      "entity_id": "light.desk",
+      "group": "light",
+      "name": "Desk lamp",
+      "state": "on",
+      "available": true,
+      "unit": null,
+      "value": null,
+      "on": true,
+      "brightness_percent": 50,
+      "supports_brightness": true,
+      "percentage": null,
+      "supports_percentage": false
+    },
+    {
+      "entity_id": "sensor.office_temperature",
+      "group": "temperature",
+      "name": "Office",
+      "state": "21.75",
+      "available": true,
+      "unit": "°C",
+      "value": 21.75,
+      "on": null,
+      "brightness_percent": null,
+      "supports_brightness": false,
+      "percentage": null,
+      "supports_percentage": false
+    }
+  ]
+}
+```
+
+The response follows the order saved in Settings. A configured id absent from
+HA is retained with `available: false` and `state: "not found"`, so a typo is
+visible rather than silently dropped. Brightness is converted from HA's 0–255
+value to 0–100; fan percentage is already 0–100.
+
+### `POST /api/v1/integrations/homeassistant/control`
+
+Light and fan modals send tightly-scoped service calls:
+
+```json
+{ "group": "light", "entity_id": "light.desk", "on": true }
+{ "group": "light", "entity_id": "light.desk", "on": true, "percentage": 40 }
+{ "group": "fan", "entity_id": "fan.office", "on": true, "percentage": 55 }
+```
+
+- On/off maps to `{entity domain}.turn_on` / `turn_off`, so a light-group
+  `switch.desk_plug` correctly calls `switch.turn_on`.
+- Brightness maps to `light.turn_on` with `brightness_pct`; it is only allowed
+  for `light.*` entities and only shown when HA advertises brightness support.
+- Fan speed maps to `fan.set_percentage`; it is only shown when
+  `FanEntityFeature.SET_SPEED` is advertised.
+- Temperature entities are read-only.
+- The requested entity must exist in the stored group. Arbitrary entity ids and
+  arbitrary HA service names cannot be passed through this API.
+
+Success is HTTP 202 with `{"accepted": true}`. The modal refetches states after
+the service call rather than assuming HA applied it.
+
+> **https with a self-signed certificate will not work.** The client verifies
+> against the system CA bundle, so a local Home Assistant should be reached over
+> `http://` on the LAN, or over `https://` with a certificate that actually
+> validates. This is deliberate: unlike the printer's own certificate, there is
+> no reason to accept an unverified one here.
 
 ## Authentication endpoints
 

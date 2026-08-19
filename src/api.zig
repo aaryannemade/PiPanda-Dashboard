@@ -12,6 +12,7 @@ const Allocator = std.mem.Allocator;
 const printer = @import("bambu/printer.zig");
 const cloud = @import("bambu/cloud.zig");
 const credentials = @import("bambu/credentials.zig");
+const homeassistant = @import("homeassistant.zig");
 const log = @import("log.zig");
 
 pub const Options = struct {
@@ -99,6 +100,11 @@ const Context = struct {
     thumb_mutex: Io.Mutex = .init,
     thumb: Thumbnail = .{},
 
+    /// Serializes config mutation and bounds expensive `/api/states` fetches to
+    /// one at a time. Without this, several open tabs can each allocate an
+    /// 8 MiB HA response tree concurrently on the 512 MiB Pi.
+    ha_mutex: Io.Mutex = .init,
+
     fn lockAuth(self: *Context) void {
         self.auth_mutex.lock(self.io) catch {};
     }
@@ -111,6 +117,13 @@ const Context = struct {
     }
     fn unlockThumb(self: *Context) void {
         self.thumb_mutex.unlock(self.io);
+    }
+
+    fn lockHa(self: *Context) void {
+        self.ha_mutex.lock(self.io) catch {};
+    }
+    fn unlockHa(self: *Context) void {
+        self.ha_mutex.unlock(self.io);
     }
 };
 
@@ -426,6 +439,11 @@ const Route = enum {
     auth_devices,
     auth_select,
     auth_logout,
+    ha_config,
+    ha_test,
+    ha_disconnect,
+    ha_entities,
+    ha_control,
     unknown,
 };
 
@@ -444,14 +462,32 @@ fn route(target: []const u8) Route {
     if (std.mem.eql(u8, path, "/api/v1/auth/devices")) return .auth_devices;
     if (std.mem.eql(u8, path, "/api/v1/auth/select")) return .auth_select;
     if (std.mem.eql(u8, path, "/api/v1/auth/logout")) return .auth_logout;
+    if (std.mem.eql(u8, path, "/api/v1/integrations/homeassistant")) return .ha_config;
+    if (std.mem.eql(u8, path, "/api/v1/integrations/homeassistant/test")) return .ha_test;
+    if (std.mem.eql(u8, path, "/api/v1/integrations/homeassistant/disconnect")) return .ha_disconnect;
+    if (std.mem.eql(u8, path, "/api/v1/integrations/homeassistant/entities")) return .ha_entities;
+    if (std.mem.eql(u8, path, "/api/v1/integrations/homeassistant/control")) return .ha_control;
     return .unknown;
 }
 
 fn serveRequest(request: *std.http.Server.Request, context: *Context) !void {
+    // A POST carrying neither Content-Length nor Transfer-Encoding has an empty
+    // body (RFC 9110 §8.6). std's Server does not accept that implicitly: if a
+    // handler answers such a request without reading the body first, its
+    // `discardBody` hits `assert(transfer_encoding != .none or content_length
+    // != null)` and panics the whole daemon. Browsers always send
+    // `Content-Length: 0`, but `curl -X POST` does not, so saying the length out
+    // loud here is what keeps a hand-driven request from killing the server.
+    if (request.head.method.requestHasBody() and
+        request.head.transfer_encoding == .none and
+        request.head.content_length == null)
+    {
+        request.head.content_length = 0;
+    }
+
     if (request.head.method == .OPTIONS) {
         return request.respond("", .{
             .status = .no_content,
-            .extra_headers = &cors_headers,
         });
     }
 
@@ -537,6 +573,28 @@ fn serveRequest(request: *std.http.Server.Request, context: *Context) !void {
                 return methodNotAllowed(request, "POST, OPTIONS");
             return authLogout(request, context);
         },
+        .ha_config => switch (request.head.method) {
+            .GET, .HEAD => return haConfig(request, context),
+            .POST => return haSave(request, context),
+            else => return methodNotAllowed(request, "GET, HEAD, POST, OPTIONS"),
+        },
+        .ha_test => {
+            if (request.head.method != .POST) return methodNotAllowed(request, "POST, OPTIONS");
+            return haTest(request, context);
+        },
+        .ha_disconnect => {
+            if (request.head.method != .POST) return methodNotAllowed(request, "POST, OPTIONS");
+            return haDisconnect(request, context);
+        },
+        .ha_entities => {
+            if (request.head.method != .GET and request.head.method != .HEAD)
+                return methodNotAllowed(request, "GET, HEAD, OPTIONS");
+            return haEntities(request, context);
+        },
+        .ha_control => {
+            if (request.head.method != .POST) return methodNotAllowed(request, "POST, OPTIONS");
+            return haControl(request, context);
+        },
         .unknown => return respondError(request, .not_found, "not_found", "endpoint not found"),
     }
 }
@@ -596,7 +654,6 @@ fn serveThumbnail(request: *std.http.Server.Request, context: *Context) !void {
                 .extra_headers = &.{
                     .{ .name = "etag", .value = tag },
                     .{ .name = "cache-control", .value = thumbnail_cache_control },
-                    .{ .name = "access-control-allow-origin", .value = "*" },
                 },
             });
         }
@@ -610,7 +667,6 @@ fn serveThumbnail(request: *std.http.Server.Request, context: *Context) !void {
             // for the print it was fetched for.
             .{ .name = "cache-control", .value = thumbnail_cache_control },
             .{ .name = "etag", .value = tag },
-            .{ .name = "access-control-allow-origin", .value = "*" },
         },
     });
 }
@@ -623,6 +679,16 @@ fn requestHeader(request: *std.http.Server.Request, name: []const u8) ?[]const u
         if (std.ascii.eqlIgnoreCase(header.name, name)) return header.value;
     }
     return null;
+}
+
+fn hasJsonContentType(request: *std.http.Server.Request) bool {
+    const raw = requestHeader(request, "content-type") orelse return false;
+    const media_type = std.mem.trim(
+        u8,
+        raw[0 .. std.mem.indexOfScalar(u8, raw, ';') orelse raw.len],
+        " \t",
+    );
+    return std.ascii.eqlIgnoreCase(media_type, "application/json");
 }
 
 fn serveRawState(request: *std.http.Server.Request, context: *Context) !void {
@@ -1031,6 +1097,277 @@ fn authLogout(request: *std.http.Server.Request, context: *Context) !void {
     return respondJson(request, "{\"logged_out\":true}", .ok);
 }
 
+// --- Home Assistant integration -------------------------------------------
+
+/// The Home Assistant config lives beside the Bambu credentials but in its own
+/// file, so signing out of Bambu Lab leaves the home automation setup alone.
+fn haStore(context: *Context) homeassistant.Store {
+    return .{ .io = context.io, .dir = context.store.dir };
+}
+
+/// Reports the stored configuration. The token is deliberately absent: it is a
+/// full-access credential for the user's home and the settings page has no
+/// reason to read one back.
+fn haConfig(request: *std.http.Server.Request, context: *Context) !void {
+    context.lockHa();
+    defer context.unlockHa();
+    var arena_state: std.heap.ArenaAllocator = .init(context.gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const config: ?homeassistant.Config = haStore(context).load(arena) catch |err| switch (err) {
+        error.NotFound => null,
+        // A corrupt file should show up in the UI as "not configured" rather
+        // than as a dead settings page.
+        error.Corrupt => null,
+        else => return respondError(request, .internal_server_error, "config_unreadable", "could not read the Home Assistant configuration"),
+    };
+
+    const body = try std.json.Stringify.valueAlloc(context.gpa, .{
+        .configured = config != null,
+        .base_url = if (config) |c| c.base_url else null,
+        .entities = if (config) |c| c.entities else homeassistant.Entities{},
+    }, .{});
+    defer context.gpa.free(body);
+    return respondJson(request, body, .ok);
+}
+
+const HomeAssistantBody = struct {
+    base_url: []const u8,
+    /// Optional so the entity lists can be edited without re-pasting the token.
+    /// Absent or empty means "keep the stored one"; there is no way to read a
+    /// token back out of the API, so the settings page cannot send it back.
+    token: ?[]const u8 = null,
+    entities: homeassistant.Entities = .{},
+};
+
+/// Validates and stores the configuration.
+///
+/// The connection is probed before anything is written, so a typo in the URL or
+/// a revoked token is reported immediately instead of being discovered later by
+/// a feature that quietly does nothing.
+fn haSave(request: *std.http.Server.Request, context: *Context) !void {
+    context.lockHa();
+    defer context.unlockHa();
+    if (!hasJsonContentType(request))
+        return respondError(request, .unsupported_media_type, "content_type_required", "expected Content-Type: application/json");
+    // Room for a token plus three full entity groups.
+    const raw = readBody(request, context, 16 * 1024) catch |err| return switch (err) {
+        error.BodyTooLarge => respondErrorClose(request, .payload_too_large, "body_too_large", "request body exceeds 16 KiB"),
+        else => respondErrorClose(request, .bad_request, "invalid_body", "could not read request body"),
+    };
+    defer context.gpa.free(raw);
+
+    var arena_state: std.heap.ArenaAllocator = .init(context.gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const parsed = std.json.parseFromSliceLeaky(HomeAssistantBody, arena, raw, .{
+        .ignore_unknown_fields = true,
+    }) catch return respondError(
+        request,
+        .unprocessable_entity,
+        "invalid_body",
+        "expected {\"base_url\":\"…\",\"token\":\"…\",\"entities\":{\"light\":[],\"temperature\":[],\"fan\":[]}}",
+    );
+
+    const base_url = homeassistant.normalizeBaseUrl(arena, parsed.base_url) catch
+        return respondError(request, .unprocessable_entity, "invalid_url", "expected an http:// or https:// address such as http://homeassistant.local:8123");
+
+    const existing: ?homeassistant.Config = haStore(context).load(arena) catch null;
+    const supplied = std.mem.trim(u8, parsed.token orelse "", " \t\r\n");
+    const token = if (supplied.len != 0)
+        supplied
+    else if (existing) |stored|
+        if (std.mem.eql(u8, stored.base_url, base_url))
+            stored.token
+        else
+            return respondError(request, .unprocessable_entity, "missing_token", "the access token must be entered again when changing the Home Assistant URL")
+    else
+        return respondError(request, .unprocessable_entity, "missing_token", "a long-lived access token is required");
+
+    homeassistant.validateEntities(parsed.entities) catch |err| return switch (err) {
+        error.InvalidEntityId => respondError(request, .unprocessable_entity, "invalid_entity_id", "entity ids must look like light.kitchen_ceiling"),
+        error.TooManyEntities => respondError(request, .unprocessable_entity, "too_many_entities", "too many entities in one group"),
+        error.DuplicateEntity => respondError(request, .unprocessable_entity, "duplicate_entity", "an entity id can only appear once across all groups"),
+        else => respondError(request, .internal_server_error, "invalid_entities", "could not validate the entity list"),
+    };
+
+    var client: homeassistant.Client = .init(context.gpa, context.io);
+    defer client.deinit();
+    client.probe(arena, base_url, token) catch |err| return respondHomeAssistantError(request, err);
+
+    haStore(context).save(context.gpa, .{
+        .base_url = base_url,
+        .token = token,
+        .entities = parsed.entities,
+    }) catch return respondError(request, .internal_server_error, "save_failed", "could not write the Home Assistant configuration");
+
+    std.log.info("home assistant configured at {s} ({d} entities)", .{ base_url, parsed.entities.total() });
+
+    const body = try std.json.Stringify.valueAlloc(context.gpa, .{
+        .saved = true,
+        .base_url = base_url,
+        .entities = parsed.entities,
+    }, .{});
+    defer context.gpa.free(body);
+    return respondJson(request, body, .ok);
+}
+
+/// Re-probes the stored configuration so the settings page can offer a "test
+/// connection" button without making the user re-enter the token.
+fn haTest(request: *std.http.Server.Request, context: *Context) !void {
+    context.lockHa();
+    defer context.unlockHa();
+    var arena_state: std.heap.ArenaAllocator = .init(context.gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const config = haStore(context).load(arena) catch |err| return switch (err) {
+        error.NotFound, error.Corrupt => respondError(request, .conflict, "not_configured", "Home Assistant is not configured"),
+        else => respondError(request, .internal_server_error, "config_unreadable", "could not read the Home Assistant configuration"),
+    };
+
+    var client: homeassistant.Client = .init(context.gpa, context.io);
+    defer client.deinit();
+    client.probe(arena, config.base_url, config.token) catch |err| return respondHomeAssistantError(request, err);
+
+    return respondJson(request, "{\"ok\":true}", .ok);
+}
+
+fn haDisconnect(request: *std.http.Server.Request, context: *Context) !void {
+    context.lockHa();
+    defer context.unlockHa();
+    haStore(context).delete(context.gpa) catch |err| switch (err) {
+        error.NotFound => {},
+        else => return respondError(request, .internal_server_error, "disconnect_failed", "could not remove the Home Assistant configuration"),
+    };
+    return respondJson(request, "{\"disconnected\":true}", .ok);
+}
+
+/// Reads the configured entities on demand. This endpoint is intentionally
+/// separate from `/dashboard`: Home Assistant being slow or offline must not
+/// interfere with the printer's one-second status poll.
+fn haEntities(request: *std.http.Server.Request, context: *Context) !void {
+    context.lockHa();
+    defer context.unlockHa();
+    var arena_state: std.heap.ArenaAllocator = .init(context.gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const config = haStore(context).load(arena) catch |err| return switch (err) {
+        error.NotFound, error.Corrupt => respondError(request, .conflict, "not_configured", "Home Assistant is not configured"),
+        else => respondError(request, .internal_server_error, "config_unreadable", "could not read the Home Assistant configuration"),
+    };
+
+    var client: homeassistant.Client = .init(context.gpa, context.io);
+    defer client.deinit();
+    const entities = client.states(arena, config) catch |err|
+        return respondHomeAssistantApiError(request, err);
+
+    const body = try std.json.Stringify.valueAlloc(context.gpa, .{ .entities = entities }, .{});
+    defer context.gpa.free(body);
+    return respondJson(request, body, .ok);
+}
+
+const HomeAssistantControlBody = struct {
+    group: homeassistant.EntityGroup,
+    entity_id: []const u8,
+    on: ?bool = null,
+    percentage: ?u8 = null,
+};
+
+/// Sends a tightly-scoped service call. An entity must be in the stored group;
+/// arbitrary entity ids and arbitrary HA service names never cross this API.
+fn haControl(request: *std.http.Server.Request, context: *Context) !void {
+    context.lockHa();
+    defer context.unlockHa();
+    if (!hasJsonContentType(request))
+        return respondError(request, .unsupported_media_type, "content_type_required", "expected Content-Type: application/json");
+    const raw = readBody(request, context, 4 * 1024) catch |err| return switch (err) {
+        error.BodyTooLarge => respondErrorClose(request, .payload_too_large, "body_too_large", "request body exceeds 4 KiB"),
+        else => respondErrorClose(request, .bad_request, "invalid_body", "could not read request body"),
+    };
+    defer context.gpa.free(raw);
+
+    var arena_state: std.heap.ArenaAllocator = .init(context.gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const command = std.json.parseFromSliceLeaky(HomeAssistantControlBody, arena, raw, .{
+        .ignore_unknown_fields = false,
+    }) catch return respondError(request, .unprocessable_entity, "invalid_body", "expected a group, entity_id, and on or percentage value");
+
+    if (command.on == null and command.percentage == null)
+        return respondError(request, .unprocessable_entity, "missing_action", "expected an on or percentage value");
+    if (command.percentage) |value| if (value > 100)
+        return respondError(request, .unprocessable_entity, "invalid_percentage", "percentage must be between 0 and 100");
+    if (command.group == .temperature)
+        return respondError(request, .unprocessable_entity, "read_only", "temperature entities are read-only");
+
+    const config = haStore(context).load(arena) catch |err| return switch (err) {
+        error.NotFound, error.Corrupt => respondError(request, .conflict, "not_configured", "Home Assistant is not configured"),
+        else => respondError(request, .internal_server_error, "config_unreadable", "could not read the Home Assistant configuration"),
+    };
+    if (homeassistant.configuredGroup(config.entities, command.entity_id) != command.group)
+        return respondError(request, .forbidden, "entity_not_configured", "that entity is not configured in this group");
+
+    const domain = homeassistant.entityDomain(command.entity_id) orelse
+        return respondError(request, .unprocessable_entity, "invalid_entity_id", "invalid Home Assistant entity id");
+
+    var client: homeassistant.Client = .init(context.gpa, context.io);
+    defer client.deinit();
+
+    if (command.on == false) {
+        client.callService(arena, config, domain, "turn_off", .{
+            .entity_id = command.entity_id,
+        }) catch |err| return respondHomeAssistantApiError(request, err);
+    } else if (command.percentage) |percentage| {
+        switch (command.group) {
+            .light => {
+                if (!std.mem.eql(u8, domain, "light"))
+                    return respondError(request, .unprocessable_entity, "brightness_unsupported", "only light.* entities support brightness");
+                client.callService(arena, config, domain, "turn_on", .{
+                    .entity_id = command.entity_id,
+                    .brightness_pct = percentage,
+                }) catch |err| return respondHomeAssistantApiError(request, err);
+            },
+            .fan => {
+                if (!std.mem.eql(u8, domain, "fan"))
+                    return respondError(request, .unprocessable_entity, "percentage_unsupported", "only fan.* entities support percentage control");
+                client.callService(arena, config, domain, "set_percentage", .{
+                    .entity_id = command.entity_id,
+                    .percentage = percentage,
+                }) catch |err| return respondHomeAssistantApiError(request, err);
+            },
+            .temperature => unreachable,
+        }
+    } else {
+        client.callService(arena, config, domain, "turn_on", .{
+            .entity_id = command.entity_id,
+        }) catch |err| return respondHomeAssistantApiError(request, err);
+    }
+
+    return respondJson(request, "{\"accepted\":true}", .accepted);
+}
+
+fn respondHomeAssistantError(request: *std.http.Server.Request, err: homeassistant.ProbeError) !void {
+    return switch (err) {
+        error.Unauthorized => respondError(request, .bad_gateway, "ha_unauthorized", "Home Assistant rejected the access token"),
+        error.Unreachable => respondError(request, .bad_gateway, "ha_unreachable", "could not reach Home Assistant at that address (a self-signed https certificate will fail here; use http:// on a local network)"),
+        error.NotHomeAssistant => respondError(request, .bad_gateway, "ha_unexpected_response", "that address answered, but not like a Home Assistant API"),
+        error.OutOfMemory => error.OutOfMemory,
+    };
+}
+
+fn respondHomeAssistantApiError(request: *std.http.Server.Request, err: homeassistant.ApiError) !void {
+    return switch (err) {
+        error.Unauthorized => respondError(request, .bad_gateway, "ha_unauthorized", "Home Assistant rejected the access token"),
+        error.Unreachable => respondError(request, .bad_gateway, "ha_unreachable", "could not reach Home Assistant"),
+        error.NotHomeAssistant, error.InvalidResponse => respondError(request, .bad_gateway, "ha_unexpected_response", "Home Assistant returned an unexpected response"),
+        error.OutOfMemory => error.OutOfMemory,
+    };
+}
+
 /// Replaces the pending login, freeing any previous one.
 fn setPending(context: *Context, pending: PendingLogin) !void {
     context.lockAuth();
@@ -1095,13 +1432,6 @@ fn readBody(request: *std.http.Server.Request, context: *Context, limit: usize) 
 const json_headers = [_]std.http.Header{
     .{ .name = "content-type", .value = "application/json" },
     .{ .name = "cache-control", .value = "no-store" },
-    .{ .name = "access-control-allow-origin", .value = "*" },
-};
-
-const cors_headers = [_]std.http.Header{
-    .{ .name = "access-control-allow-origin", .value = "*" },
-    .{ .name = "access-control-allow-methods", .value = "GET, HEAD, POST, OPTIONS" },
-    .{ .name = "access-control-allow-headers", .value = "content-type" },
 };
 
 fn respondJson(request: *std.http.Server.Request, body: []const u8, status: std.http.Status) !void {
@@ -1116,7 +1446,6 @@ fn methodNotAllowed(request: *std.http.Server.Request, allow: []const u8) !void 
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "application/json" },
                 .{ .name = "allow", .value = allow },
-                .{ .name = "access-control-allow-origin", .value = "*" },
             },
         },
     );
@@ -1168,6 +1497,11 @@ test route {
     try std.testing.expectEqual(Route.auth_login, route("/api/v1/auth/login"));
     try std.testing.expectEqual(Route.auth_status, route("/api/v1/auth/status"));
     try std.testing.expectEqual(Route.auth_devices, route("/api/v1/auth/devices"));
+    try std.testing.expectEqual(Route.ha_config, route("/api/v1/integrations/homeassistant"));
+    try std.testing.expectEqual(Route.ha_test, route("/api/v1/integrations/homeassistant/test"));
+    try std.testing.expectEqual(Route.ha_disconnect, route("/api/v1/integrations/homeassistant/disconnect"));
+    try std.testing.expectEqual(Route.ha_entities, route("/api/v1/integrations/homeassistant/entities"));
+    try std.testing.expectEqual(Route.ha_control, route("/api/v1/integrations/homeassistant/control"));
     try std.testing.expectEqual(Route.unknown, route("/api/v1/nope"));
 }
 

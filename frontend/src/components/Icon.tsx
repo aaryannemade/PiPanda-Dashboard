@@ -1,6 +1,6 @@
 import { Show } from "solid-js";
 
-export type IconName = "camera" | "chevron" | "cube" | "droplet" | "eye" | "fan" | "printer" | "rotate" | "scan" | "settings" | "star" | "thermometer" | "user";
+export type IconName = "camera" | "chevron" | "cube" | "droplet" | "eye" | "fan" | "light" | "printer" | "rotate" | "scan" | "settings" | "star" | "thermometer" | "user";
 
 interface IconProps {
   name: IconName;
@@ -42,6 +42,9 @@ export function Icon(props: IconProps) {
       <Show when={props.name === "fan"}>
         <circle cx="12" cy="12" r="2" />
         <path d="M12 10c-1.7-2.2-1.1-5.9 1.4-6.6 2.2-.6 3.5 1.7 2.5 3.6-.8 1.5-2.3 2.4-3.9 3ZM14 12c2.2-1.7 5.9-1.1 6.6 1.4.6 2.2-1.7 3.5-3.6 2.5-1.5-.8-2.4-2.3-3-3.9ZM12 14c1.7 2.2 1.1 5.9-1.4 6.6-2.2.6-3.5-1.7-2.5-3.6.8-1.5 2.3-2.4 3.9-3ZM10 12c-2.2 1.7-5.9 1.1-6.6-1.4C2.8 8.4 5.1 7.1 7 8.1c1.5.8 2.4 2.3 3 3.9Z" />
+      </Show>
+      <Show when={props.name === "light"}>
+        <path d="M9 18h6M9.7 21h4.6M8.5 15.5A6 6 0 1 1 15.5 15.5c-.8.6-1.1 1.2-1.1 2H9.6c0-.8-.3-1.4-1.1-2Z" />
       </Show>
       <Show when={props.name === "printer"}>
         <path d="M6 8V3h12v5M6 17H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />

@@ -8,8 +8,9 @@ import { FilamentSection } from "./components/FilamentSection";
 import { JobCard } from "./components/JobCard";
 import { PrinterHeader } from "./components/PrinterHeader";
 import { SettingsPage } from "./components/SettingsPage";
+import { HomeAssistantModal } from "./components/HomeAssistantModal";
 import { EMPTY_DASHBOARD } from "./lib/dashboard";
-import type { Dashboard } from "./types";
+import type { Dashboard, HomeAssistantGroup } from "./types";
 
 const POLL_INTERVAL_MS = 1_000;
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -22,6 +23,7 @@ function App() {
   const [commandError, setCommandError] = createSignal<string>();
   const [lightOverride, setLightOverride] = createSignal<boolean>();
   const [lightPending, setLightPending] = createSignal(false);
+  const [homeAssistantModal, setHomeAssistantModal] = createSignal<HomeAssistantGroup>();
   let refreshing = false;
   let controller: AbortController | undefined;
   let lightConfirmationTimer: number | undefined;
@@ -162,6 +164,7 @@ function App() {
                   lightOn={lightOn()}
                   lightPending={lightPending()}
                   onToggleLight={() => void toggleLight()}
+                  onOpenHomeAssistant={setHomeAssistantModal}
                 />
               </div>
             </div>
@@ -170,6 +173,9 @@ function App() {
       </Show>
 
       <BottomNav view={view()} onNavigate={onNavigate} />
+      <Show when={homeAssistantModal()}>
+        {(group) => <HomeAssistantModal group={group()} onClose={() => setHomeAssistantModal(undefined)} />}
+      </Show>
     </div>
   );
 }

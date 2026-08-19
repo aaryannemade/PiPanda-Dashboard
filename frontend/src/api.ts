@@ -1,4 +1,4 @@
-import type { AuthStatus, Dashboard, Device, LoginResult } from "./types";
+import type { AuthStatus, Dashboard, Device, HomeAssistantConfig, HomeAssistantEntities, HomeAssistantEntityState, HomeAssistantGroup, LoginResult } from "./types";
 
 const apiBase = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 
@@ -129,4 +129,62 @@ export function selectDevice(deviceId: string, signal?: AbortSignal): Promise<{ 
 
 export function logout(signal?: AbortSignal): Promise<{ logged_out: boolean }> {
   return apiRequest("/api/v1/auth/logout", { method: "POST", signal });
+}
+
+export function fetchHomeAssistant(signal?: AbortSignal): Promise<HomeAssistantConfig> {
+  return apiRequest<HomeAssistantConfig>("/api/v1/integrations/homeassistant", {
+    cache: "no-store",
+    signal,
+  });
+}
+
+/**
+ * Saves the integration. The backend probes the connection before storing, so a
+ * resolved promise means the token and URL actually work.
+ *
+ * Omit `token` to keep the stored one; it is required only the first time.
+ */
+export function saveHomeAssistant(
+  config: { base_url: string; token?: string; entities: HomeAssistantEntities },
+  signal?: AbortSignal,
+): Promise<{ saved: boolean }> {
+  return apiRequest("/api/v1/integrations/homeassistant", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+    signal,
+  });
+}
+
+export function testHomeAssistant(signal?: AbortSignal): Promise<{ ok: boolean }> {
+  return apiRequest("/api/v1/integrations/homeassistant/test", { method: "POST", signal });
+}
+
+export function disconnectHomeAssistant(signal?: AbortSignal): Promise<{ disconnected: boolean }> {
+  return apiRequest("/api/v1/integrations/homeassistant/disconnect", { method: "POST", signal });
+}
+
+export async function fetchHomeAssistantEntities(signal?: AbortSignal): Promise<HomeAssistantEntityState[]> {
+  const { entities } = await apiRequest<{ entities: HomeAssistantEntityState[] }>(
+    "/api/v1/integrations/homeassistant/entities",
+    { cache: "no-store", signal },
+  );
+  return entities;
+}
+
+export function controlHomeAssistantEntity(
+  command: {
+    group: Exclude<HomeAssistantGroup, "temperature">;
+    entity_id: string;
+    on?: boolean;
+    percentage?: number;
+  },
+  signal?: AbortSignal,
+): Promise<{ accepted: boolean }> {
+  return apiRequest("/api/v1/integrations/homeassistant/control", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(command),
+    signal,
+  });
 }

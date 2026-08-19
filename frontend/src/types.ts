@@ -118,3 +118,38 @@ export interface AmsTray {
   remain?: number | string;
   tray_info_idx?: string;
 }
+
+/** Entity ids grouped by the role the user assigned them. */
+export interface HomeAssistantEntities {
+  light: string[];
+  temperature: string[];
+  fan: string[];
+}
+
+/**
+ * The stored Home Assistant configuration. The access token is deliberately
+ * absent: the backend never hands it back, so an edit that does not change it
+ * simply omits it.
+ */
+export interface HomeAssistantConfig {
+  configured: boolean;
+  base_url: string | null;
+  entities: HomeAssistantEntities;
+}
+
+export type HomeAssistantGroup = "light" | "temperature" | "fan";
+
+export interface HomeAssistantEntityState {
+  entity_id: string;
+  group: HomeAssistantGroup;
+  name: string;
+  state: string;
+  available: boolean;
+  unit: string | null;
+  value: number | null;
+  on: boolean | null;
+  brightness_percent: number | null;
+  supports_brightness: boolean;
+  percentage: number | null;
+  supports_percentage: boolean;
+}

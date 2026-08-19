@@ -12,6 +12,7 @@ pub const credentials = @import("bambu/credentials.zig");
 pub const printer = @import("bambu/printer.zig");
 pub const status = @import("bambu/status.zig");
 pub const api = @import("api.zig");
+pub const homeassistant = @import("homeassistant.zig");
 
 pub const mqtt = @import("net/mqtt.zig");
 pub const tls_stream = @import("net/tls_stream.zig");
@@ -23,6 +24,7 @@ test {
     _ = printer;
     _ = status;
     _ = api;
+    _ = homeassistant;
     _ = mqtt;
     _ = tls_stream;
 }

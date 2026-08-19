@@ -25,7 +25,7 @@ Implemented so far: the backend that talks to the printer.
 | Chamber light / timelapse commands | done |
 | Camera Module 3 capture and WebRTC streaming | Raspberry Pi OS module done; hardware validation pending |
 | Timelapse recording | not started |
-| Home Assistant integration | not started |
+| Home Assistant integration | URL/token and grouped entities are configured in Settings; dashboard modals read temperatures and control lights/fans (including brightness and percentage when supported) |
 | HTTP dashboard | SolidJS device screen and Zig API implemented |
 | Dashboard login | Settings page with Bambu Lab login (password, emailed code, authenticator) over the API |
 
@@ -253,8 +253,9 @@ just web
 ```
 
 Open `http://127.0.0.1:5173`. Vite proxies `/api` to the Zig server on port 8080.
-Set `VITE_API_BASE` when building for a deployment where the API is on a
-different origin. `just web-check` type-checks the app and `just web-build`
+The browser API must remain same-origin; use a reverse-proxy path rather than a
+different origin. `VITE_API_BASE` may set that same-origin path prefix.
+`just web-check` type-checks the app and `just web-build`
 creates the production bundle in `frontend/dist`.
 
 ### Why the status model is a JSON document
