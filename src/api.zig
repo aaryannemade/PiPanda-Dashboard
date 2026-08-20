@@ -13,6 +13,7 @@ const printer = @import("bambu/printer.zig");
 const cloud = @import("bambu/cloud.zig");
 const credentials = @import("bambu/credentials.zig");
 const homeassistant = @import("homeassistant.zig");
+const makerworld = @import("makerworld.zig");
 const log = @import("log.zig");
 
 pub const Options = struct {
@@ -105,6 +106,13 @@ const Context = struct {
     /// 8 MiB HA response tree concurrently on the 512 MiB Pi.
     ha_mutex: Io.Mutex = .init,
 
+    /// Serializes MakerWorld browsing. One search page is ~164 KB of JSON that
+    /// parses into a much larger tree, and a scrolling grid can fire several
+    /// requests before the first returns. Queueing them bounds peak memory on
+    /// the 512 MiB Pi and, since this is an undocumented third-party API we are
+    /// guests on, keeps pipanda to one request in flight.
+    mw_mutex: Io.Mutex = .init,
+
     fn lockAuth(self: *Context) void {
         self.auth_mutex.lock(self.io) catch {};
     }
@@ -124,6 +132,13 @@ const Context = struct {
     }
     fn unlockHa(self: *Context) void {
         self.ha_mutex.unlock(self.io);
+    }
+
+    fn lockMakerworld(self: *Context) void {
+        self.mw_mutex.lock(self.io) catch {};
+    }
+    fn unlockMakerworld(self: *Context) void {
+        self.mw_mutex.unlock(self.io);
     }
 };
 
@@ -444,6 +459,8 @@ const Route = enum {
     ha_disconnect,
     ha_entities,
     ha_control,
+    mw_models,
+    mw_model,
     unknown,
 };
 
@@ -467,6 +484,8 @@ fn route(target: []const u8) Route {
     if (std.mem.eql(u8, path, "/api/v1/integrations/homeassistant/disconnect")) return .ha_disconnect;
     if (std.mem.eql(u8, path, "/api/v1/integrations/homeassistant/entities")) return .ha_entities;
     if (std.mem.eql(u8, path, "/api/v1/integrations/homeassistant/control")) return .ha_control;
+    if (std.mem.eql(u8, path, "/api/v1/makerworld/models")) return .mw_models;
+    if (std.mem.eql(u8, path, "/api/v1/makerworld/model")) return .mw_model;
     return .unknown;
 }
 
@@ -594,6 +613,16 @@ fn serveRequest(request: *std.http.Server.Request, context: *Context) !void {
         .ha_control => {
             if (request.head.method != .POST) return methodNotAllowed(request, "POST, OPTIONS");
             return haControl(request, context);
+        },
+        .mw_models => {
+            if (request.head.method != .GET and request.head.method != .HEAD)
+                return methodNotAllowed(request, "GET, HEAD, OPTIONS");
+            return makerworldModels(request, context);
+        },
+        .mw_model => {
+            if (request.head.method != .GET and request.head.method != .HEAD)
+                return methodNotAllowed(request, "GET, HEAD, OPTIONS");
+            return makerworldModel(request, context);
         },
         .unknown => return respondError(request, .not_found, "not_found", "endpoint not found"),
     }
@@ -1411,7 +1440,176 @@ fn respondCloudError(request: *std.http.Server.Request, err: cloud.Error) !void 
     };
 }
 
+// --- MakerWorld -----------------------------------------------------------
+
+/// Past this a request is not a search, it is someone poking at the proxy.
+const makerworld_keyword_max = 120;
+
+/// Browsing MakerWorld hits a third party rather than the printer, so these two
+/// routes work before any Bambu login and stay useful while the printer is
+/// offline. They exist as a proxy only because makerworld.com sends no
+/// `Access-Control-Allow-Origin`, which puts it out of reach of the browser.
+/// Cover images are not proxied: the frontend loads those straight from the CDN.
+fn makerworldModels(request: *std.http.Server.Request, context: *Context) !void {
+    var arena_state: std.heap.ArenaAllocator = .init(context.gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const target = request.head.target;
+    const keyword = std.mem.trim(u8, (try queryParam(arena, target, "keyword")) orelse "", " \t");
+    if (keyword.len > makerworld_keyword_max)
+        return respondError(request, .unprocessable_entity, "keyword_too_long", "search keyword is too long");
+
+    const offset = (try queryInt(u32, arena, target, "offset")) orelse 0;
+    const limit = (try queryInt(u32, arena, target, "limit")) orelse makerworld.default_page_size;
+
+    context.lockMakerworld();
+    defer context.unlockMakerworld();
+
+    var client: makerworld.Client = .init(context.gpa, context.io);
+    defer client.deinit();
+
+    const page = client.browse(arena, keyword, offset, limit) catch |err|
+        return respondMakerworldError(request, err);
+
+    var out: Io.Writer.Allocating = .init(context.gpa);
+    defer out.deinit();
+    var stringify: std.json.Stringify = .{ .writer = &out.writer };
+    try stringify.beginObject();
+    try stringify.objectField("total");
+    try stringify.write(page.total);
+    try stringify.objectField("offset");
+    try stringify.write(offset);
+    // The frontend pages by appending until a short page comes back, so it
+    // needs to know what it actually got rather than what it asked for.
+    try stringify.objectField("count");
+    try stringify.write(page.models.len);
+    try stringify.objectField("models");
+    try stringify.beginArray();
+    for (page.models) |m| try stringify.write(modelJson(arena, m) catch return error.OutOfMemory);
+    try stringify.endArray();
+    try stringify.endObject();
+    return respondJson(request, out.written(), .ok);
+}
+
+fn makerworldModel(request: *std.http.Server.Request, context: *Context) !void {
+    var arena_state: std.heap.ArenaAllocator = .init(context.gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const id = (try queryInt(i64, arena, request.head.target, "id")) orelse
+        return respondError(request, .bad_request, "missing_id", "expected ?id=<design id>");
+    if (id <= 0)
+        return respondError(request, .bad_request, "invalid_id", "design id must be positive");
+
+    context.lockMakerworld();
+    defer context.unlockMakerworld();
+
+    var client: makerworld.Client = .init(context.gpa, context.io);
+    defer client.deinit();
+
+    const detail = client.detail(arena, id) catch |err|
+        return respondMakerworldError(request, err);
+
+    const body = try std.json.Stringify.valueAlloc(context.gpa, .{
+        .model = try modelJson(arena, detail.model),
+        // HTML, straight from MakerWorld. The frontend renders it as text; it
+        // must never reach innerHTML.
+        .summary_html = detail.summary,
+        .license = detail.license,
+        .tags = detail.tags,
+        .categories = detail.categories,
+        .instance_count = detail.instance_count,
+        .comment_count = detail.comment_count,
+        // Gallery pictures, cover not included; the frontend adds the cover
+        // itself so the gallery is complete before the detail fetch resolves.
+        .pictures = detail.pictures,
+    }, .{});
+    defer context.gpa.free(body);
+    return respondJson(request, body, .ok);
+}
+
+/// The wire shape of one model. Built by hand rather than serialising
+/// `makerworld.Model` so that renaming a field upstream cannot silently change
+/// the frontend contract.
+const ModelJson = struct {
+    id: i64,
+    title: []const u8,
+    cover: []const u8,
+    creator: []const u8,
+    like_count: i64,
+    download_count: i64,
+    print_count: i64,
+    collection_count: i64,
+    nsfw: bool,
+    /// Public page on makerworld.com.
+    url: []const u8,
+};
+
+fn modelJson(arena: Allocator, m: makerworld.Model) Allocator.Error!ModelJson {
+    // MakerWorld's own links are `/models/<id>-<slug>`; the id is what
+    // resolves, so a design with no slug still gets a working link.
+    const url = if (m.slug.len == 0)
+        try std.fmt.allocPrint(arena, "{s}{d}", .{ makerworld.web_url_prefix, m.id })
+    else
+        try std.fmt.allocPrint(arena, "{s}{d}-{s}", .{ makerworld.web_url_prefix, m.id, m.slug });
+
+    return .{
+        .id = m.id,
+        .title = m.title,
+        .cover = m.cover,
+        .creator = m.creator,
+        .like_count = m.like_count,
+        .download_count = m.download_count,
+        .print_count = m.print_count,
+        .collection_count = m.collection_count,
+        .nsfw = m.nsfw,
+        .url = url,
+    };
+}
+
+fn respondMakerworldError(request: *std.http.Server.Request, err: makerworld.Error) !void {
+    return switch (err) {
+        error.NotFound => respondError(request, .not_found, "model_not_found", "that model is not on MakerWorld"),
+        error.UnexpectedResponse => respondError(request, .bad_gateway, "unexpected_response", "MakerWorld returned something unexpected"),
+        error.HttpRequestFailed => respondError(request, .bad_gateway, "makerworld_unreachable", "could not reach MakerWorld"),
+        error.OutOfMemory => error.OutOfMemory,
+    };
+}
+
 // --- HTTP helpers ---------------------------------------------------------
+
+/// Returns the percent-decoded value of a query parameter, allocated in
+/// `arena`, or null when the target carries no such parameter.
+fn queryParam(arena: Allocator, target: []const u8, name: []const u8) Allocator.Error!?[]u8 {
+    const start = std.mem.findScalar(u8, target, '?') orelse return null;
+    var it = std.mem.splitScalar(u8, target[start + 1 ..], '&');
+    while (it.next()) |pair| {
+        const eq = std.mem.findScalar(u8, pair, '=') orelse continue;
+        if (!std.mem.eql(u8, pair[0..eq], name)) continue;
+        const raw = try arena.dupe(u8, pair[eq + 1 ..]);
+        // `+` for space is form encoding rather than RFC 3986. Decoding it
+        // cannot eat a genuine plus: `encodeURIComponent` sends that as %2B.
+        for (raw) |*c| {
+            if (c.* == '+') c.* = ' ';
+        }
+        return std.Uri.percentDecodeInPlace(raw);
+    }
+    return null;
+}
+
+/// Same, parsed as an integer. A value that will not parse is treated as absent
+/// rather than as an error: a junk `?limit=` should fall back to the default,
+/// not fail the page.
+fn queryInt(
+    comptime T: type,
+    arena: Allocator,
+    target: []const u8,
+    name: []const u8,
+) Allocator.Error!?T {
+    const raw = (try queryParam(arena, target, name)) orelse return null;
+    return std.fmt.parseInt(T, raw, 10) catch null;
+}
 
 const ReadBodyError = error{ BodyTooLarge, ReadFailed, OutOfMemory };
 
@@ -1502,7 +1700,97 @@ test route {
     try std.testing.expectEqual(Route.ha_disconnect, route("/api/v1/integrations/homeassistant/disconnect"));
     try std.testing.expectEqual(Route.ha_entities, route("/api/v1/integrations/homeassistant/entities"));
     try std.testing.expectEqual(Route.ha_control, route("/api/v1/integrations/homeassistant/control"));
+    try std.testing.expectEqual(Route.mw_models, route("/api/v1/makerworld/models"));
+    try std.testing.expectEqual(Route.mw_models, route("/api/v1/makerworld/models?keyword=benchy&offset=24"));
+    try std.testing.expectEqual(Route.mw_model, route("/api/v1/makerworld/model?id=3047341"));
+    // `model` and `models` differ by one character and must not collide.
+    try std.testing.expectEqual(Route.unknown, route("/api/v1/makerworld"));
     try std.testing.expectEqual(Route.unknown, route("/api/v1/nope"));
+}
+
+test queryParam {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try std.testing.expect((try queryParam(arena, "/api/v1/makerworld/models", "keyword")) == null);
+    try std.testing.expect((try queryParam(arena, "/x?limit=5", "keyword")) == null);
+    try std.testing.expectEqualStrings(
+        "benchy",
+        (try queryParam(arena, "/x?keyword=benchy&limit=5", "keyword")).?,
+    );
+    // The parameter is not always first, and an empty value is not absence.
+    try std.testing.expectEqualStrings(
+        "",
+        (try queryParam(arena, "/x?limit=5&keyword=", "keyword")).?,
+    );
+    // A multi-word search has to survive the round trip both ways it can be
+    // encoded, and a `&` in the term must not split into another parameter.
+    try std.testing.expectEqualStrings(
+        "articulated dragon",
+        (try queryParam(arena, "/x?keyword=articulated%20dragon", "keyword")).?,
+    );
+    try std.testing.expectEqualStrings(
+        "articulated dragon",
+        (try queryParam(arena, "/x?keyword=articulated+dragon", "keyword")).?,
+    );
+    try std.testing.expectEqualStrings(
+        "nuts & bolts",
+        (try queryParam(arena, "/x?keyword=nuts%20%26%20bolts&limit=5", "keyword")).?,
+    );
+    // A prefix of the name is a different parameter.
+    try std.testing.expect((try queryParam(arena, "/x?keywords=benchy", "keyword")) == null);
+}
+
+test queryInt {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try std.testing.expectEqual(@as(?u32, 24), try queryInt(u32, arena, "/x?offset=24", "offset"));
+    try std.testing.expectEqual(@as(?u32, null), try queryInt(u32, arena, "/x", "offset"));
+    // Junk falls back to the caller's default rather than failing the request.
+    try std.testing.expectEqual(@as(?u32, null), try queryInt(u32, arena, "/x?offset=abc", "offset"));
+    try std.testing.expectEqual(@as(?u32, null), try queryInt(u32, arena, "/x?offset=-1", "offset"));
+    try std.testing.expectEqual(@as(?i64, 3047341), try queryInt(i64, arena, "/x?id=3047341", "id"));
+}
+
+test modelJson {
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const with_slug = try modelJson(arena, .{
+        .id = 3047341,
+        .title = "Benchy Light Switch",
+        .slug = "benchy-light-switch",
+        .cover = "https://makerworld.bblmw.com/a.jpg",
+        .creator = "OLIVER",
+        .like_count = 3,
+        .download_count = 0,
+        .print_count = 0,
+        .collection_count = 2,
+        .nsfw = false,
+    });
+    try std.testing.expectEqualStrings(
+        "https://makerworld.com/en/models/3047341-benchy-light-switch",
+        with_slug.url,
+    );
+
+    // The id is what resolves, so a slugless design still gets a live link.
+    const no_slug = try modelJson(arena, .{
+        .id = 3047341,
+        .title = "",
+        .slug = "",
+        .cover = "",
+        .creator = "",
+        .like_count = 0,
+        .download_count = 0,
+        .print_count = 0,
+        .collection_count = 0,
+        .nsfw = false,
+    });
+    try std.testing.expectEqualStrings("https://makerworld.com/en/models/3047341", no_slug.url);
 }
 
 test jobProfile {

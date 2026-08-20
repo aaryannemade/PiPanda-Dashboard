@@ -13,6 +13,7 @@ pub const printer = @import("bambu/printer.zig");
 pub const status = @import("bambu/status.zig");
 pub const api = @import("api.zig");
 pub const homeassistant = @import("homeassistant.zig");
+pub const makerworld = @import("makerworld.zig");
 
 pub const mqtt = @import("net/mqtt.zig");
 pub const tls_stream = @import("net/tls_stream.zig");
@@ -25,6 +26,7 @@ test {
     _ = status;
     _ = api;
     _ = homeassistant;
+    _ = makerworld;
     _ = mqtt;
     _ = tls_stream;
 }

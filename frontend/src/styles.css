@@ -994,7 +994,7 @@ button:disabled {
   bottom: 0;
   left: 0;
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   min-height: calc(62px + env(safe-area-inset-bottom));
   padding: 5px max(18px, calc((100vw - 760px) / 2)) env(safe-area-inset-bottom);
   border-top: 1px solid rgba(255, 255, 255, 0.045);
@@ -1779,4 +1779,475 @@ button:disabled {
   color: var(--green-bright);
   font-size: 0.84rem;
   font-weight: 600;
+}
+
+/* --- Models page (MakerWorld) ------------------------------------------- */
+
+/* Wider than .settings because this is a grid rather than a form, but the
+   vertical rhythm and the bottom clearance for the nav are the same. */
+.models {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  padding: max(28px, env(safe-area-inset-top)) 22px calc(98px + env(safe-area-inset-bottom));
+}
+
+.models-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 82px;
+  color: var(--green);
+}
+
+.models-head h1 {
+  margin: 0;
+  color: #f3f5f3;
+  font: 600 clamp(1.6rem, 5vw, 2rem)/1.1 "Manrope", sans-serif;
+  letter-spacing: -0.04em;
+}
+
+.models-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px 4px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #131514;
+}
+
+.models-search:focus-within {
+  border-color: rgba(53, 195, 74, 0.45);
+}
+
+.models-search-icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.models-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.models-search input:focus {
+  outline: none;
+}
+
+/* The native clear affordance is inconsistent across browsers and invisible on
+   a dark theme, so the explicit button replaces it. */
+.models-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.models-search-clear {
+  flex: none;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8eae8;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.models-caption {
+  margin: 14px 2px 16px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.model-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 14px;
+}
+
+.model-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.025);
+  border-radius: 16px;
+  background: linear-gradient(145deg, #1a1c1b, #161817);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.model-card:hover,
+.model-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(53, 195, 74, 0.35);
+}
+
+.model-cover {
+  position: relative;
+  aspect-ratio: 1;
+  background: #101211;
+}
+
+.model-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Covers arrive from the CDN one by one; fading in avoids the grid flashing
+     white rectangles as each lands. */
+  animation: model-cover-in 0.25s ease;
+}
+
+.model-cover-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #3d423f;
+}
+
+/* MakerWorld's own adult flag. Blurred rather than hidden so the card still
+   reads as a result, and never un-blurred: this dashboard is wall-mounted.
+   (The modal's gallery images carry their own rule further down.) */
+.model-card.nsfw .model-cover img {
+  filter: blur(18px);
+}
+
+.model-nsfw-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #e8eae8;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.model-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 11px 12px 13px;
+}
+
+.model-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 0.88rem;
+  line-height: 1.25;
+}
+
+.model-creator {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-stats {
+  display: flex;
+  gap: 11px;
+  margin-top: 3px;
+  color: #7d817e;
+  font-size: 0.72rem;
+}
+
+.model-stats span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.models-foot {
+  display: flex;
+  justify-content: center;
+  min-height: 46px;
+  margin-top: 22px;
+}
+
+@keyframes model-cover-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* The model detail dialog reuses .ha-modal for the shell, backdrop, and
+   focus behaviour. Inside, it is two columns: the gallery pinned on the left
+   and the details scrolling on the right, so a long description never
+   scrollbars inside its own small box and never pushes the rest of the dialog
+   out of view. */
+.model-modal {
+  /* Positioned so the floating close button anchors to the dialog, not the
+     page. */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 940px);
+  max-height: min(820px, calc(100dvh - 48px));
+}
+
+/* Floating rather than in a header row, so neither column loses width to it. */
+.model-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(10, 12, 11, 0.72);
+  color: #e8eae8;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+.model-modal-close:hover {
+  background: rgba(28, 31, 29, 0.85);
+}
+
+.model-modal-layout {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 44%) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.model-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 18px 12px 18px 18px;
+  background: #0e100f;
+}
+
+.model-gallery-stage {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #101211;
+}
+
+.model-gallery-stage img {
+  /* Gallery pictures are arbitrary maker uploads, not square product shots,
+     so contain rather than cover: cropping the only photo that shows the
+     assembled model would hide more than letterboxing does. */
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.model-gallery-stage .model-cover-empty {
+  min-height: 240px;
+}
+
+.model-gallery-thumbs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.model-gallery-thumbs button {
+  flex: 0 0 auto;
+  padding: 0;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.model-gallery-thumbs button.active {
+  border-color: var(--green);
+}
+
+.model-gallery-thumbs img {
+  display: block;
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+}
+
+/* MakerWorld's own adult flag. Blurred rather than hidden so the image still
+   reads as present, and never un-blurred: this dashboard is wall-mounted. */
+.model-gallery-stage img.nsfw,
+.model-gallery-thumbs img.nsfw {
+  filter: blur(18px);
+}
+
+/* The one scrollable region of the dialog: everything readable flows through
+   it at full size instead of nested boxes with their own scrollbars. */
+.model-modal-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 26px 26px 30px;
+  scrollbar-width: thin;
+}
+
+.model-modal-heading h2 {
+  margin: 0;
+  font: 600 clamp(1.35rem, 2.8vw, 1.75rem)/1.18 "Manrope", sans-serif;
+  letter-spacing: -0.03em;
+}
+
+.model-modal-creator {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.model-modal-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 18px 0;
+  color: #cfd3d0;
+  font-size: 0.88rem;
+}
+
+.model-modal-stats span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* The outbound link is an <a> styled as a button, so it needs the layout the
+   <button> rule does not give it. */
+.model-modal-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.model-modal-note {
+  margin: 10px 0 0;
+  color: #666b67;
+  font-size: 0.78rem;
+}
+
+.model-modal-meta {
+  margin: 22px 0 0;
+  color: var(--green);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.model-modal-summary {
+  margin: 14px 0 0;
+  color: #d9ddda;
+  font-size: 0.96rem;
+  line-height: 1.62;
+  white-space: pre-wrap;
+}
+
+.model-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.model-tags li {
+  padding: 4px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.model-modal-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 14px;
+  margin: 24px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.model-modal-facts div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.model-modal-facts dt {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.model-modal-facts dd {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 719px) {
+  /* One column: the gallery caps its own height so the details always keep
+     the share of the sheet that scrolls. */
+  .model-modal {
+    /* Restore the bottom-sheet height the .ha-modal rule sets at this size;
+       this rule would otherwise win by coming later in the file. */
+    max-height: calc(100dvh - 20px);
+  }
+
+  .model-modal-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .model-gallery {
+    padding: 14px 14px 10px;
+  }
+
+  .model-gallery-stage {
+    flex: none;
+    height: min(44dvh, 400px);
+  }
+
+  .model-gallery-stage .model-cover-empty {
+    min-height: 180px;
+  }
+
+  .model-gallery-thumbs img {
+    width: 56px;
+    height: 56px;
+  }
+
+  .model-modal-scroll {
+    padding: 20px 18px 26px;
+  }
+}
+
+@media (max-width: 540px) {
+  .model-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-card,
+  .model-cover img {
+    transition: none;
+    animation: none;
+  }
 }

@@ -1,4 +1,4 @@
-import type { AuthStatus, Dashboard, Device, HomeAssistantConfig, HomeAssistantEntities, HomeAssistantEntityState, HomeAssistantGroup, LoginResult } from "./types";
+import type { AuthStatus, Dashboard, Device, HomeAssistantConfig, HomeAssistantEntities, HomeAssistantEntityState, HomeAssistantGroup, LoginResult, MakerworldDetail, MakerworldPage } from "./types";
 
 const apiBase = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 
@@ -187,4 +187,53 @@ export function controlHomeAssistantEntity(
     body: JSON.stringify(command),
     signal,
   });
+}
+
+// --- MakerWorld -----------------------------------------------------------
+
+/** How many models one page requests. The backend caps this at 48. */
+export const MAKERWORLD_PAGE_SIZE = 24;
+
+/**
+ * Browses MakerWorld. An empty `keyword` returns the newest-first feed rather
+ * than searching.
+ *
+ * This goes through the backend because makerworld.com sends no
+ * `Access-Control-Allow-Origin`, so the browser cannot call it directly.
+ */
+export function fetchMakerworldModels(
+  params: { keyword?: string; offset?: number; limit?: number },
+  signal?: AbortSignal,
+): Promise<MakerworldPage> {
+  const query = new URLSearchParams();
+  if (params.keyword) query.set("keyword", params.keyword);
+  if (params.offset) query.set("offset", String(params.offset));
+  query.set("limit", String(params.limit ?? MAKERWORLD_PAGE_SIZE));
+  return apiRequest<MakerworldPage>(`/api/v1/makerworld/models?${query}`, {
+    cache: "no-store",
+    signal,
+  });
+}
+
+export function fetchMakerworldModel(id: number, signal?: AbortSignal): Promise<MakerworldDetail> {
+  return apiRequest<MakerworldDetail>(`/api/v1/makerworld/model?id=${id}`, {
+    cache: "no-store",
+    signal,
+  });
+}
+
+/**
+ * Sizes a MakerWorld cover at the CDN instead of in the browser.
+ *
+ * These images are unprocessed uploads: a single cover is routinely 3 MB, and a
+ * grid of them would be tens of megabytes over the Pi's wifi. The CDN's resize
+ * parameter also converts to WebP, which takes that same cover to about 6 KB.
+ *
+ * Covers are the one thing the frontend fetches cross-origin. An `<img>` needs
+ * no CORS, and proxying them would mean caching megabytes per scroll in the
+ * backend's memory.
+ */
+export function makerworldCoverUrl(cover: string, width: number): string {
+  if (!cover) return "";
+  return `${cover}?x-oss-process=image/resize,w_${width}`;
 }

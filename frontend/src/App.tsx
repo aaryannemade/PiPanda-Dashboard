@@ -1,4 +1,4 @@
-import { Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { Match, Show, Switch, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { fetchDashboard, setChamberLight } from "./api";
 import { BottomNav, type View } from "./components/BottomNav";
 import { CameraCard } from "./components/CameraCard";
@@ -7,6 +7,7 @@ import { DeviceControls } from "./components/DeviceControls";
 import { FilamentSection } from "./components/FilamentSection";
 import { JobCard } from "./components/JobCard";
 import { PrinterHeader } from "./components/PrinterHeader";
+import { ModelsPage } from "./components/ModelsPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { HomeAssistantModal } from "./components/HomeAssistantModal";
 import { EMPTY_DASHBOARD } from "./lib/dashboard";
@@ -37,7 +38,8 @@ function App() {
   const alertMessage = createMemo(() => commandError() ?? connectionError());
 
   const refresh = async () => {
-    // The dashboard is not visible on the settings view, so do not poll it.
+    // The dashboard is only on the devices view, so do not poll behind the
+    // models or settings pages.
     if (refreshing || view() !== "devices") return;
     refreshing = true;
     controller = new AbortController();
@@ -131,46 +133,47 @@ function App() {
 
   return (
     <div class="app-shell">
-      <Show
-        when={view() === "devices"}
-        fallback={<SettingsPage />}
-      >
-        <main class="dashboard">
-          <PrinterHeader printer={data().printer} online={isOnline()} connecting={!dashboard()} />
-          <ConnectionBanner message={alertMessage()} onRetry={retry} />
+      <Switch>
+        <Match when={view() === "models"}><ModelsPage /></Match>
+        <Match when={view() === "settings"}><SettingsPage /></Match>
+        <Match when={true}>
+          <main class="dashboard">
+            <PrinterHeader printer={data().printer} online={isOnline()} connecting={!dashboard()} />
+            <ConnectionBanner message={alertMessage()} onRetry={retry} />
 
-          <div class="dashboard-grid">
-            <div class="dashboard-column left">
-              <div class="col-camera">
-                <CameraCard
-                  camera={data().camera}
-                  printerName={data().printer.name}
-                  live={cameraLive()}
-                  connecting={!dashboard()}
-                />
+            <div class="dashboard-grid">
+              <div class="dashboard-column left">
+                <div class="col-camera">
+                  <CameraCard
+                    camera={data().camera}
+                    printerName={data().printer.name}
+                    live={cameraLive()}
+                    connecting={!dashboard()}
+                  />
+                </div>
+                <div class="col-filament">
+                  <FilamentSection filament={data().filament} />
+                </div>
               </div>
-              <div class="col-filament">
-                <FilamentSection filament={data().filament} />
+              <div class="dashboard-column right">
+                <div class="col-job">
+                  <JobCard job={data().job} />
+                </div>
+                <div class="col-controls">
+                  <DeviceControls
+                    controls={data().controls}
+                    lightControlAvailable={data().capabilities.light_control}
+                    lightOn={lightOn()}
+                    lightPending={lightPending()}
+                    onToggleLight={() => void toggleLight()}
+                    onOpenHomeAssistant={setHomeAssistantModal}
+                  />
+                </div>
               </div>
             </div>
-            <div class="dashboard-column right">
-              <div class="col-job">
-                <JobCard job={data().job} />
-              </div>
-              <div class="col-controls">
-                <DeviceControls
-                  controls={data().controls}
-                  lightControlAvailable={data().capabilities.light_control}
-                  lightOn={lightOn()}
-                  lightPending={lightPending()}
-                  onToggleLight={() => void toggleLight()}
-                  onOpenHomeAssistant={setHomeAssistantModal}
-                />
-              </div>
-            </div>
-          </div>
-        </main>
-      </Show>
+          </main>
+        </Match>
+      </Switch>
 
       <BottomNav view={view()} onNavigate={onNavigate} />
       <Show when={homeAssistantModal()}>

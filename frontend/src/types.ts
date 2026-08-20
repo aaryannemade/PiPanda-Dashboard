@@ -153,3 +153,45 @@ export interface HomeAssistantEntityState {
   percentage: number | null;
   supports_percentage: boolean;
 }
+
+/**
+ * One MakerWorld model, already projected down by the backend from the ~45
+ * fields the upstream search returns.
+ */
+export interface MakerworldModel {
+  id: number;
+  title: string;
+  /** CDN cover at full size, or "" when the design has no render. */
+  cover: string;
+  creator: string;
+  like_count: number;
+  download_count: number;
+  print_count: number;
+  collection_count: number;
+  nsfw: boolean;
+  /** Public page on makerworld.com. */
+  url: string;
+}
+
+export interface MakerworldPage {
+  /** Capped upstream at 10000, so treat it as "at least this many". */
+  total: number;
+  offset: number;
+  count: number;
+  models: MakerworldModel[];
+}
+
+export interface MakerworldDetail {
+  model: MakerworldModel;
+  /** Description as HTML. Rendered as text; never assigned to innerHTML. */
+  summary_html: string;
+  license: string;
+  tags: string[];
+  categories: string[];
+  instance_count: number;
+  comment_count: number;
+  /** Maker-uploaded gallery images, capped at 12 upstream. The cover is not
+   * included; the frontend prepends it so the gallery is usable before this
+   * fetch resolves. */
+  pictures: string[];
+}

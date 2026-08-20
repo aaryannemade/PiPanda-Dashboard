@@ -20,7 +20,8 @@ documents.
 | Filament | AMS selector, external spool selector, humidity, active slot | Printer MQTT `ams` and `vt_tray` | Raw live values |
 | AMS slots | Slot ID, material, color, remaining amount and active/loaded state | Printer MQTT tray objects | Raw live values |
 | Filament library | Roll count and Add Filament | Bambu cloud filament library | Advertised as unavailable |
-| Navigation | Models, Devices and Me tabs | Frontend routing and Bambu cloud account APIs | Frontend responsibility |
+| Model browsing | MakerWorld feed, search, model detail | MakerWorld web API, unauthenticated | Browse, search and read-only detail; downloading and printing are not implemented |
+| Navigation | Models, Devices and Me tabs | Frontend routing and Bambu cloud account APIs | Models and Devices; Me is served by Settings |
 
 The screenshot's success history, print-again action, rating control and filament
 library are not part of the printer's live MQTT status. They have nullable values
@@ -353,6 +354,94 @@ the service call rather than assuming HA applied it.
 > `http://` on the LAN, or over `https://` with a certificate that actually
 > validates. This is deliberate: unlike the printer's own certificate, there is
 > no reason to accept an unverified one here.
+
+## MakerWorld endpoints
+
+These back the Models tab. They are a thin proxy in front of makerworld.com,
+which publishes no API: the endpoints below were reverse engineered and are
+documented in `src/makerworld.zig`.
+
+Three things about them differ from the rest of this document:
+
+- **No authentication is involved.** They work before a Bambu Lab login and
+  while the printer is offline.
+- **They exist only because of CORS.** makerworld.com returns no
+  `Access-Control-Allow-Origin`, so the browser cannot call it directly. Cover
+  images are the exception and are loaded straight from the CDN, since an
+  `<img>` needs no CORS.
+- **Replies are projected, not forwarded.** Upstream sends about 45 fields per
+  hit and a 24-item page is roughly 81 KB; the same page leaves this API at
+  about 8 KB.
+
+Requests are serialised server-side by a mutex, both to bound memory on the Pi
+and to keep pipanda to one in-flight request against a third-party API.
+
+### `GET /api/v1/makerworld/models`
+
+| Query | Default | Notes |
+| --- | --- | --- |
+| `keyword` | *(empty)* | Empty searches nothing and returns the newest-first feed instead. Max 120 characters. |
+| `offset` | `0` | Paging offset. |
+| `limit` | `24` | Clamped to 48. |
+
+```json
+{
+  "total": 7122,
+  "offset": 0,
+  "count": 24,
+  "models": [
+    {
+      "id": 3047341,
+      "title": "Benchy Light Switch",
+      "cover": "https://makerworld.bblmw.com/makerworld/model/…/c68b5a94.jpg",
+      "creator": "OLIVER",
+      "like_count": 3,
+      "download_count": 0,
+      "print_count": 0,
+      "collection_count": 2,
+      "nsfw": false,
+      "url": "https://makerworld.com/en/models/3047341-benchy-light-switch"
+    }
+  ]
+}
+```
+
+`total` is capped upstream at 10000, so it cannot be used to detect the last
+page. Page until `count` is less than the requested `limit`.
+
+`cover` is a full-size upload and is routinely 3 MB. Always request it through
+the CDN's resize parameter, which also converts to WebP and takes that same
+image to roughly 6 KB:
+
+```
+${cover}?x-oss-process=image/resize,w_400
+```
+
+### `GET /api/v1/makerworld/model?id=<design id>`
+
+```json
+{
+  "model": { "…": "same shape as above" },
+  "summary_html": "<p>This benchy light switch is AWESOME.</p>",
+  "license": "BY-NC",
+  "tags": ["BENCHY", "Benchy", "benchy"],
+  "categories": ["Decor", "Household"],
+  "instance_count": 0,
+  "comment_count": 0,
+  "pictures": ["https://makerworld.bblmw.com/makerworld/model/…/photo1.jpg"]
+}
+```
+
+`summary_html` is author-supplied HTML from a third party arriving on a page
+that also drives the printer. The frontend strips the tags and renders the text;
+it must never be assigned to `innerHTML`.
+
+`pictures` are the maker's uploaded gallery photos, capped at 12, and do not
+repeat the cover: the frontend puts the cover first so the gallery works before
+this endpoint resolves.
+
+Errors use codes `missing_id`, `invalid_id`, `keyword_too_long`,
+`model_not_found`, `unexpected_response` and `makerworld_unreachable`.
 
 ## Authentication endpoints
 
