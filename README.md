@@ -149,24 +149,57 @@ Camera Module 3 -> rpicam-vid -> go2rtc -> WebRTC
    GitHub Release or workflow artifact.
 
 The workflow also generates `pipanda-VERSION-CHANGELOG.md` from commits since
-the previous version tag.
+the previous version tag. After uploading the assets, it marks the release as
+GitHub's **Latest** and provides fixed-name installer/checksum aliases. Version
+tags remain `vVERSION`; a separate moving `latest` Git tag is not needed.
 
 ### Install on the Pi
 
-Download a release directly on the Pi by replacing the version below:
+Install or update with one command on the Pi:
+
+```sh
+curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/aaryannemade/pipanda-dashboard/releases/latest/download/install.sh | bash
+```
+
+The bootstrap downloads into a private temporary directory, verifies the
+installer's SHA-256 checksum, then requests sudo to run the existing installer.
+It cleans up afterward and preserves the usual configuration/credential upgrade
+behavior. Do not pipe into `sudo bash`: only the verified installer needs root.
+Requires `curl`, Bash and `sha256sum` (available on Raspberry Pi OS Lite).
+The command becomes available after the next release from the updated workflow.
+
+Piping a script into Bash executes code from this repository; the checksum
+checks the downloaded installer, not the bootstrap itself. To review first:
+
+```sh
+curl -fLo install.sh https://github.com/aaryannemade/pipanda-dashboard/releases/latest/download/install.sh
+# Inspect install.sh before running it:
+bash install.sh
+```
+
+#### Manual download
+
+Download, verify and install the latest published release directly on the Pi
+(the same commands also upgrade an existing installation):
+
+```sh
+curl -fLO https://github.com/aaryannemade/pipanda-dashboard/releases/latest/download/pipanda-latest-aarch64.run && \
+curl -fLO https://github.com/aaryannemade/pipanda-dashboard/releases/latest/download/pipanda-latest-aarch64.run.sha256 && \
+sha256sum --check pipanda-latest-aarch64.run.sha256 && \
+sudo bash ./pipanda-latest-aarch64.run
+```
+
+These URLs become available with the first release built by the updated
+workflow. A checksum failure stops installation; if a release was published
+between the two downloads, rerun the whole command to fetch a matching pair.
+To pin an older release, versioned downloads are still available:
 
 ```sh
 VERSION=0.2.0
-curl -fLO "https://github.com/aaryannemade/pipanda-dashboard/releases/download/v${VERSION}/pipanda-${VERSION}-aarch64.run"
-curl -fLO "https://github.com/aaryannemade/pipanda-dashboard/releases/download/v${VERSION}/pipanda-${VERSION}-aarch64.run.sha256"
-```
-
-Verify and run it:
-
-```sh
-sha256sum --check "pipanda-${VERSION}-aarch64.run.sha256"
-chmod +x "pipanda-${VERSION}-aarch64.run"
-sudo "./pipanda-${VERSION}-aarch64.run"
+curl -fLO "https://github.com/aaryannemade/pipanda-dashboard/releases/download/v${VERSION}/pipanda-${VERSION}-aarch64.run" && \
+curl -fLO "https://github.com/aaryannemade/pipanda-dashboard/releases/download/v${VERSION}/pipanda-${VERSION}-aarch64.run.sha256" && \
+sha256sum --check "pipanda-${VERSION}-aarch64.run.sha256" && \
+sudo bash "./pipanda-${VERSION}-aarch64.run"
 ```
 
 The installer installs required Raspberry Pi OS packages, deploys all PiPanda

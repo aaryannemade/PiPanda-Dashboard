@@ -39,7 +39,8 @@ The manually triggered workflow:
 6. Generates release notes from commits since the previous version tag.
 7. Builds and stage-tests a self-extracting installer.
 8. Produces the installer, checksum and changelog as a workflow artifact.
-9. Creates or updates the matching `vVERSION` GitHub Release.
+9. Creates or updates the matching `vVERSION` GitHub Release and marks it
+   **Latest** after all assets have been uploaded.
 
 Release files:
 
@@ -47,21 +48,55 @@ Release files:
 pipanda-0.2.0-aarch64.run
 pipanda-0.2.0-aarch64.run.sha256
 pipanda-0.2.0-CHANGELOG.md
+pipanda-latest-aarch64.run
+pipanda-latest-aarch64.run.sha256
+install.sh
 ```
 
 The generated changelog is a release artifact and GitHub Release description;
 the workflow does not create an automated commit on the source branch.
+The `latest` installer is byte-identical to the versioned one, with its own
+checksum file naming the alias. GitHub's Latest release designation supplies
+the stable download URL; there is no moving `latest` Git tag. Running the
+workflow again for an older version also promotes that release to Latest.
 
 ## Install
 
-Prepare the latest 64-bit Raspberry Pi OS Lite, Wi-Fi and SSH. Copy the `.run`
-file and checksum from the GitHub Release to the Pi, then run:
+Prepare the latest 64-bit Raspberry Pi OS Lite, Wi-Fi and SSH. On the Pi, use
+the following for both initial installation and upgrades, without entering a
+version number:
 
 ```sh
-sha256sum --check pipanda-0.2.0-aarch64.run.sha256
-chmod +x pipanda-0.2.0-aarch64.run
-sudo ./pipanda-0.2.0-aarch64.run
+curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/aaryannemade/pipanda-dashboard/releases/latest/download/install.sh | bash
 ```
+
+The bootstrap runs downloads as your normal user, checks the installer checksum,
+then invokes sudo for installation. Temporary files are removed on success or
+failure. If already root, it runs the verified installer directly. Do not pipe
+into `sudo bash`; no privilege is needed for downloading. Requires curl, Bash
+and sha256sum, included in Raspberry Pi OS Lite. It reuses the existing installer
+and preserves its configuration/credential handling.
+
+This executes a script supplied by this repository. HTTPS and the installer
+checksum do not independently authenticate that bootstrap script. To review it
+first, download `install.sh` using `curl -fLo install.sh` followed by the URL
+above, inspect it, then run `bash install.sh`. Installer options can be passed
+through, for example `bash install.sh --no-start`, or `| bash -s -- --no-start`
+with the piped command.
+
+Alternatively, download and verify the release manually:
+
+```sh
+curl -fLO https://github.com/aaryannemade/pipanda-dashboard/releases/latest/download/pipanda-latest-aarch64.run && \
+curl -fLO https://github.com/aaryannemade/pipanda-dashboard/releases/latest/download/pipanda-latest-aarch64.run.sha256 && \
+sha256sum --check pipanda-latest-aarch64.run.sha256 && \
+sudo bash ./pipanda-latest-aarch64.run
+```
+
+The bootstrap and aliases are available starting with the first release from the updated
+workflow. Downloads or checksum failures prevent installation. If a new release
+appears between downloads, rerun the entire command to obtain a matching pair.
+Versioned assets remain available for pinned installs or rollbacks.
 
 The installer:
 
@@ -166,6 +201,7 @@ HEIGHT=1080
 FRAMERATE=30
 BITRATE=4000000
 AUTOFOCUS_MODE=continuous
+ROI=0.108,0.108,0.892,0.892
 HORIZONTAL_FLIP=0
 VERTICAL_FLIP=0
 ```
@@ -175,6 +211,20 @@ Restart after editing:
 ```sh
 sudo systemctl restart pipanda-camera.service
 ```
+
+`ROI` crops at capture time and scales the selected region to the unchanged
+1920x1080 output, without software video transcoding. Its four values are
+`x,y,width,height`, fractions of the full sensor frame before flips. The
+default retains the marked print area with a little extra left margin to
+preserve 16:9 rather than stretching the image. Use `ROI=0,0,1,1` for the full
+field of view; older configurations without `ROI` also remain uncropped.
+Cropping keeps the output pixel dimensions, not the original field of view
+or amount of image detail.
+
+Installers preserve existing `camera.env` files. To apply this crop to an
+existing Pi, update `/usr/local/libexec/pipanda-camera-source` from this release,
+add the `ROI` line above to `/etc/pipanda/camera.env`, and restart the camera
+service. The backend does not need restarting.
 
 The hardware encoder path intentionally rejects dimensions above 1920x1080.
 

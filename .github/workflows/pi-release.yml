@@ -71,6 +71,7 @@ jobs:
           bun tools/signing-setup.mjs --self-test
           bash -n deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/pipanda-signing-refresh deploy/pi-os/tests/*.sh
           shellcheck deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/pipanda-signing-refresh deploy/pi-os/tests/*.sh
+          bash deploy/pi-os/tests/run.sh
 
       - name: Build frontend
         run: bun run --cwd frontend build
@@ -136,12 +137,22 @@ jobs:
             "release/$INSTALLER"
           (cd release && sha256sum "$INSTALLER" >"$INSTALLER.sha256")
 
+      - name: Prepare latest download aliases
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "release/$INSTALLER" release/pipanda-latest-aarch64.run
+          (cd release && sha256sum pipanda-latest-aarch64.run >pipanda-latest-aarch64.run.sha256)
+          cp deploy/pi-os/bootstrap.sh release/install.sh
+
       - name: Smoke-test installer payload
         shell: bash
         run: |
           set -euo pipefail
+          cmp "release/$INSTALLER" release/pipanda-latest-aarch64.run
+          (cd release && sha256sum --check "$INSTALLER.sha256" && sha256sum --check pipanda-latest-aarch64.run.sha256)
           mkdir -p release/extracted release/staged
-          "release/$INSTALLER" --extract release/extracted
+          release/pipanda-latest-aarch64.run --extract release/extracted
           bash release/extracted/install.sh --root "$(pwd)/release/staged"
           test -x release/staged/usr/local/bin/pipanda
           test -f release/staged/usr/local/share/pipanda/frontend/index.html
@@ -156,6 +167,9 @@ jobs:
           path: |
             release/${{ env.INSTALLER }}
             release/${{ env.INSTALLER }}.sha256
+            release/pipanda-latest-aarch64.run
+            release/pipanda-latest-aarch64.run.sha256
+            release/install.sh
             release/pipanda-${{ env.VERSION }}-CHANGELOG.md
           if-no-files-found: error
 
@@ -170,6 +184,7 @@ jobs:
             gh release edit "$RELEASE_TAG" --notes-file "$notes" --title "PiPanda $VERSION"
           else
             gh release create "$RELEASE_TAG" \
+              --latest=false \
               --target "$GITHUB_SHA" \
               --title "PiPanda $VERSION" \
               --notes-file "$notes"
@@ -177,4 +192,9 @@ jobs:
           gh release upload "$RELEASE_TAG" --clobber \
             "release/$INSTALLER" \
             "release/$INSTALLER.sha256" \
+            release/pipanda-latest-aarch64.run \
+            release/pipanda-latest-aarch64.run.sha256 \
+            release/install.sh \
             "$notes"
+          # Only promote after both download names and checksums are available.
+          gh release edit "$RELEASE_TAG" --latest

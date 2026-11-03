@@ -28,12 +28,40 @@ bash "$MODULE_DIR/pipanda-camera-source" >"$tmp/video.h264"
 }
 
 for expected in \
-  h264 baseline 4.1 1920 1080 30 4000000 continuous -; do
+  h264 baseline 4.1 1920 1080 30 4000000 continuous --roi 0.108,0.108,0.892,0.892 -; do
   grep --fixed-strings --line-regexp -- "$expected" "$tmp/args" >/dev/null || {
     echo "camera source omitted expected argument: $expected" >&2
     exit 1
   }
 done
+
+# Assert the ROI is one argument immediately after --roi, not just present.
+awk 'previous == "--roi" { if ($0 != "0.108,0.108,0.892,0.892") exit 1; found = 1 }
+     { previous = $0 } END { if (!found) exit 1 }' "$tmp/args"
+
+# Existing config files without ROI keep their original full-frame capture.
+sed -i '/^ROI=/d' "$tmp/camera.env"
+bash "$MODULE_DIR/pipanda-camera-source" >"$tmp/video.h264"
+if grep -Fx -- --roi "$tmp/args" >/dev/null; then
+  echo "camera source cropped a legacy configuration" >&2; exit 1
+fi
+
+cp "$tmp/camera.env" "$tmp/no-roi.env"
+for roi in 0,0,1,1 0.108,0.108,0.892,0.892; do
+  cp "$tmp/no-roi.env" "$tmp/camera.env"
+  printf 'ROI=%s\n' "$roi" >>"$tmp/camera.env"
+  bash "$MODULE_DIR/pipanda-camera-source" >"$tmp/video.h264"
+  grep -Fx -- "$roi" "$tmp/args" >/dev/null
+done
+for roi in 0,0,0,1 0,0,1.1,1 0.2,0,0.9,1 0,0.2,1,0.9 -0.1,0,1,1 0,0,1 0,0,1,1,0 invalid; do
+  cp "$tmp/no-roi.env" "$tmp/camera.env"
+  printf 'ROI=%s\n' "$roi" >>"$tmp/camera.env"
+  if bash "$MODULE_DIR/pipanda-camera-source" >/dev/null 2>"$tmp/error"; then
+    echo "camera source accepted invalid ROI: $roi" >&2; exit 1
+  fi
+  grep -F 'ROI must be' "$tmp/error" >/dev/null
+done
+cp "$MODULE_DIR/camera.env" "$tmp/camera.env"
 
 cat >>"$tmp/camera.env" <<'EOF'
 HORIZONTAL_FLIP=1
@@ -72,6 +100,8 @@ bash "$MODULE_DIR/make-installer.sh" \
   "$tmp/frontend" \
   "$tmp/go2rtc" \
   "$tmp/release/pipanda.run"
+
+bash "$SCRIPT_DIR/bootstrap.sh" "$tmp/release/pipanda.run"
 
 mkdir -p "$tmp/extracted" "$tmp/staged" "$tmp/direct-staged"
 bash "$tmp/release/pipanda.run" --root "$tmp/direct-staged"
