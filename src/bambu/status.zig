@@ -327,11 +327,12 @@ pub const Snapshot = struct {
     }
 };
 
-/// Fan speeds are reported as a stringified 0-255 value.
+/// Fan speeds are reported as a stringified 0-15 level, not a 0-255 PWM value.
 fn fanPercent(raw: ?[]const u8) ?u8 {
     const text = raw orelse return null;
     const value = std.fmt.parseInt(u16, text, 10) catch return null;
-    return @intCast(@min(100, (value * 100 + 127) / 255));
+    const level: u16 = @min(value, 15);
+    return @intCast((level * 100 + 7) / 15);
 }
 
 /// Recursively merges `src` into `dst`. Nested objects are merged key by key;
@@ -431,8 +432,10 @@ test "compaction preserves state" {
 
 test fanPercent {
     try std.testing.expectEqual(@as(u8, 0), fanPercent("0").?);
+    try std.testing.expectEqual(@as(u8, 100), fanPercent("15").?);
+    try std.testing.expectEqual(@as(u8, 67), fanPercent("10").?);
+    try std.testing.expectEqual(@as(u8, 7), fanPercent("1").?);
     try std.testing.expectEqual(@as(u8, 100), fanPercent("255").?);
-    try std.testing.expectEqual(@as(u8, 50), fanPercent("127").?);
     try std.testing.expect(fanPercent(null) == null);
     try std.testing.expect(fanPercent("") == null);
 }
