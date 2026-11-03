@@ -1,6 +1,6 @@
 import { Icon } from "./Icon";
 
-export type View = "devices" | "models" | "settings";
+export type View = "devices" | "settings";
 
 interface BottomNavProps {
   view: View;
@@ -20,9 +20,8 @@ export function BottomNav(props: BottomNavProps) {
       </button>
       <button
         type="button"
-        class={props.view === "models" ? "active" : undefined}
-        aria-current={props.view === "models" ? "page" : undefined}
-        onClick={() => props.onNavigate("models")}
+        disabled
+        title="Models — coming soon"
       >
         <Icon name="cube" size={28} /><span>Models</span>
       </button>

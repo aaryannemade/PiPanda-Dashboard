@@ -7,7 +7,6 @@ import { DeviceControls } from "./components/DeviceControls";
 import { FilamentSection } from "./components/FilamentSection";
 import { JobCard } from "./components/JobCard";
 import { PrinterHeader } from "./components/PrinterHeader";
-import { ModelsPage } from "./components/ModelsPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { HomeAssistantModal } from "./components/HomeAssistantModal";
 import type { PrintCommand } from "./components/PrintControls";
@@ -62,7 +61,7 @@ function App() {
 
   const refresh = async () => {
     // The dashboard is only on the devices view, so do not poll behind the
-    // models or settings pages.
+    // settings page.
     if (refreshing || view() !== "devices") return;
     refreshing = true;
     controller = new AbortController();
@@ -187,7 +186,6 @@ function App() {
   return (
     <div class="app-shell">
       <Switch>
-        <Match when={view() === "models"}><ModelsPage /></Match>
         <Match when={view() === "settings"}><SettingsPage /></Match>
         <Match when={true}>
           <main class="dashboard">

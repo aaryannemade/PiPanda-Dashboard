@@ -1149,6 +1149,10 @@ button:disabled {
   color: var(--green);
 }
 
+.bottom-nav button:disabled {
+  opacity: 0.35;
+}
+
 .bottom-nav button.active span {
   color: #e8eae8;
 }
