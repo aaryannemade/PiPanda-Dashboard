@@ -8,5 +8,6 @@ frontend/*.tsbuildinfo
 # which is what the dev shell does.
 .state/
 
-# Local Home Assistant long-lived token used for manual API testing.
-/ha-token.secret
+# Local credentials and temporary files, anywhere in the repository.
+*.secret
+tmp/
