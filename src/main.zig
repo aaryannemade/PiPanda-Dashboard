@@ -511,7 +511,7 @@ fn openSession(
             .region = creds.region,
             .username = creds.mqtt_username,
             .access_token = creds.access_token,
-        } });
+        } }, store.dir);
     }
 
     const access_code = creds.device_access_code orelse {
@@ -526,7 +526,8 @@ fn openSession(
     return pipanda.printer.Session.connect(gpa, io, device_id, .{ .lan = .{
         .host = host,
         .access_code = access_code,
-    } });
+        .user_id = creds.mqtt_username,
+    } }, store.dir);
 }
 
 fn loadCredentials(

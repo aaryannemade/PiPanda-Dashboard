@@ -1,5 +1,5 @@
 import { Match, Show, Switch, createMemo, createSignal, onCleanup, onMount } from "solid-js";
-import { fetchDashboard, setChamberLight } from "./api";
+import { controlPrint, fetchDashboard, setChamberLight, setPrintSpeed } from "./api";
 import { BottomNav, type View } from "./components/BottomNav";
 import { CameraCard } from "./components/CameraCard";
 import { ConnectionBanner } from "./components/ConnectionBanner";
@@ -10,12 +10,33 @@ import { PrinterHeader } from "./components/PrinterHeader";
 import { ModelsPage } from "./components/ModelsPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { HomeAssistantModal } from "./components/HomeAssistantModal";
+import type { PrintCommand } from "./components/PrintControls";
 import { EMPTY_DASHBOARD } from "./lib/dashboard";
 import type { Dashboard, HomeAssistantGroup } from "./types";
 
 const POLL_INTERVAL_MS = 1_000;
 const REQUEST_TIMEOUT_MS = 8_000;
 const COMMAND_CONFIRM_TIMEOUT_MS = 8_000;
+/** Pausing parks the toolhead first, so the state change lags the command. */
+const PRINT_CONFIRM_TIMEOUT_MS = 20_000;
+
+/** Whether the printer's reported state shows the command took effect. */
+function printCommandConfirmed(command: PrintCommand, data: Dashboard): boolean {
+  const state = data.printer.state;
+  switch (command.kind) {
+    case "pause": return state === "PAUSE";
+    case "resume": return state === "RUNNING";
+    case "stop": return state !== "RUNNING" && state !== "PAUSE" && state !== "PREPARE";
+    case "speed": return data.controls.print.speed_level === command.level;
+  }
+}
+
+const PRINT_COMMAND_LABEL: Record<PrintCommand["kind"], string> = {
+  pause: "pause",
+  resume: "resume",
+  stop: "stop",
+  speed: "speed change",
+};
 
 function App() {
   const [view, setView] = createSignal<View>("devices");
@@ -25,6 +46,8 @@ function App() {
   const [lightOverride, setLightOverride] = createSignal<boolean>();
   const [lightPending, setLightPending] = createSignal(false);
   const [homeAssistantModal, setHomeAssistantModal] = createSignal<HomeAssistantGroup>();
+  const [printPending, setPrintPending] = createSignal<PrintCommand>();
+  let printConfirmationTimer: number | undefined;
   let refreshing = false;
   let controller: AbortController | undefined;
   let lightConfirmationTimer: number | undefined;
@@ -62,6 +85,8 @@ function App() {
         setLightOverride(undefined);
         setLightPending(false);
       }
+      const pendingPrint = printPending();
+      if (pendingPrint && printCommandConfirmed(pendingPrint, data)) clearPrintPending();
     } catch (error) {
       if (timedOut) {
         setConnectionError("Dashboard request timed out");
@@ -82,8 +107,36 @@ function App() {
       controller?.abort();
       lightCommandController?.abort();
       if (lightConfirmationTimer != null) window.clearTimeout(lightConfirmationTimer);
+      if (printConfirmationTimer != null) window.clearTimeout(printConfirmationTimer);
     });
   });
+
+  const clearPrintPending = () => {
+    if (printConfirmationTimer != null) window.clearTimeout(printConfirmationTimer);
+    printConfirmationTimer = undefined;
+    setPrintPending(undefined);
+  };
+
+  const sendPrintCommand = async (command: PrintCommand) => {
+    if (!data().capabilities.print_control || printPending()) return;
+    setPrintPending(command);
+    setCommandError(undefined);
+    printConfirmationTimer = window.setTimeout(() => {
+      printConfirmationTimer = undefined;
+      setPrintPending(undefined);
+      setCommandError(`Printer did not confirm the ${PRINT_COMMAND_LABEL[command.kind]}`);
+    }, PRINT_CONFIRM_TIMEOUT_MS);
+
+    try {
+      if (command.kind === "speed") await setPrintSpeed(command.level);
+      else await controlPrint(command.kind);
+      void refresh();
+    } catch (error) {
+      if (printPending() !== command) return;
+      clearPrintPending();
+      setCommandError(error instanceof Error ? error.message : `Could not send the ${PRINT_COMMAND_LABEL[command.kind]}`);
+    }
+  };
 
   const toggleLight = async () => {
     if (!data().capabilities.light_control || lightPending()) return;
@@ -162,6 +215,10 @@ function App() {
                 <div class="col-controls">
                   <DeviceControls
                     controls={data().controls}
+                    printState={data().printer.state}
+                    printControlAvailable={isOnline() && data().capabilities.print_control}
+                    printPending={printPending()}
+                    onPrintCommand={(command) => void sendPrintCommand(command)}
                     lightControlAvailable={data().capabilities.light_control}
                     lightOn={lightOn()}
                     lightPending={lightPending()}

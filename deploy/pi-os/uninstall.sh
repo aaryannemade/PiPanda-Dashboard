@@ -17,6 +17,7 @@ rm -f \
   /usr/local/bin/pipanda-uninstall \
   /usr/local/bin/go2rtc \
   /usr/local/bin/pipanda-camera-test \
+  /usr/local/bin/pipanda-signing-refresh \
   /usr/local/libexec/pipanda-camera-source
 
 rm -rf /usr/local/share/pipanda

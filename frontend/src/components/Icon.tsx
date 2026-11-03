@@ -1,6 +1,6 @@
 import { Show } from "solid-js";
 
-export type IconName = "camera" | "chevron" | "close" | "cube" | "download" | "droplet" | "external" | "eye" | "fan" | "heart" | "light" | "printer" | "rotate" | "scan" | "search" | "settings" | "star" | "thermometer" | "user";
+export type IconName = "camera" | "chevron" | "close" | "cube" | "download" | "droplet" | "external" | "eye" | "fan" | "gauge" | "heart" | "light" | "pause" | "play" | "printer" | "rotate" | "scan" | "search" | "settings" | "star" | "stop" | "thermometer" | "user";
 
 interface IconProps {
   name: IconName;
@@ -51,12 +51,18 @@ export function Icon(props: IconProps) {
         <circle cx="12" cy="12" r="2" />
         <path d="M12 10c-1.7-2.2-1.1-5.9 1.4-6.6 2.2-.6 3.5 1.7 2.5 3.6-.8 1.5-2.3 2.4-3.9 3ZM14 12c2.2-1.7 5.9-1.1 6.6 1.4.6 2.2-1.7 3.5-3.6 2.5-1.5-.8-2.4-2.3-3-3.9ZM12 14c1.7 2.2 1.1 5.9-1.4 6.6-2.2.6-3.5-1.7-2.5-3.6.8-1.5 2.3-2.4 3.9-3ZM10 12c-2.2 1.7-5.9 1.1-6.6-1.4C2.8 8.4 5.1 7.1 7 8.1c1.5.8 2.4 2.3 3 3.9Z" />
       </Show>
+      <Show when={props.name === "gauge"}>
+        <path d="M3.5 16.5a8.5 8.5 0 1 1 17 0" />
+        <path d="m12 16.5 4-5.5M6.2 11.3l1 .6M12 8v1.2M17.8 11.3l-1 .6" />
+      </Show>
       <Show when={props.name === "heart"}>
         <path d="M12 20.3s-7.7-4.5-7.7-9.8a4.2 4.2 0 0 1 7.7-2.3 4.2 4.2 0 0 1 7.7 2.3c0 5.3-7.7 9.8-7.7 9.8Z" />
       </Show>
       <Show when={props.name === "light"}>
         <path d="M9 18h6M9.7 21h4.6M8.5 15.5A6 6 0 1 1 15.5 15.5c-.8.6-1.1 1.2-1.1 2H9.6c0-.8-.3-1.4-1.1-2Z" />
       </Show>
+      <Show when={props.name === "pause"}><path d="M8.5 5.5v13M15.5 5.5v13" /></Show>
+      <Show when={props.name === "play"}><path d="M7.5 5.2v13.6L18.5 12 7.5 5.2Z" /></Show>
       <Show when={props.name === "printer"}>
         <path d="M6 8V3h12v5M6 17H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
         <path d="M6 14h12v7H6z" /><path d="M17.5 11h.01" />
@@ -77,6 +83,7 @@ export function Icon(props: IconProps) {
         <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" />
       </Show>
       <Show when={props.name === "star"}><path d="m12 2.7 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.3l6.2-.9L12 2.7Z" /></Show>
+      <Show when={props.name === "stop"}><rect x="6" y="6" width="12" height="12" rx="2" /></Show>
       <Show when={props.name === "thermometer"}>
         <path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0Z" />
         <circle cx="12" cy="18" r="1.6" />

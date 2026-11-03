@@ -11,6 +11,7 @@ pub const cloud = @import("bambu/cloud.zig");
 pub const credentials = @import("bambu/credentials.zig");
 pub const printer = @import("bambu/printer.zig");
 pub const status = @import("bambu/status.zig");
+pub const signing = @import("bambu/signing.zig");
 pub const api = @import("api.zig");
 pub const homeassistant = @import("homeassistant.zig");
 pub const makerworld = @import("makerworld.zig");
@@ -24,6 +25,7 @@ test {
     _ = credentials;
     _ = printer;
     _ = status;
+    _ = signing;
     _ = api;
     _ = homeassistant;
     _ = makerworld;

@@ -1,9 +1,14 @@
 import type { Dashboard } from "../types";
 import type { HomeAssistantGroup } from "../types";
 import { Icon } from "./Icon";
+import { PrintControls, type PrintCommand } from "./PrintControls";
 
 interface DeviceControlsProps {
   controls: Dashboard["controls"];
+  printState: string | null;
+  printControlAvailable: boolean;
+  printPending: PrintCommand | undefined;
+  onPrintCommand: (command: PrintCommand) => void;
   lightControlAvailable: boolean;
   lightOn: boolean;
   lightPending: boolean;
@@ -21,6 +26,13 @@ export function DeviceControls(props: DeviceControlsProps) {
       <div class="section-heading">
         <h2>Device Control</h2>
       </div>
+      <PrintControls
+        state={props.printState}
+        speedLevel={props.controls.print.speed_level}
+        available={props.printControlAvailable}
+        pending={props.printPending}
+        onCommand={props.onPrintCommand}
+      />
       <div class="control-layout">
         <article
           class="nozzle-card panel interactive-panel"

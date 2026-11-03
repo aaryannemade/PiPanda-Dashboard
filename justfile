@@ -47,7 +47,11 @@ web-build:
     bun run --cwd frontend build
 
 # Run the fast backend and frontend development checks.
-check: fmt-check typecheck test web-check
+check: fmt-check typecheck test web-check signing-check
+
+# Offline known-answer test of signing credential provisioning (no printer IO).
+signing-check:
+    bun tools/signing-setup.mjs --self-test
 
 # Authenticate with Bambu Lab.
 login:
@@ -60,6 +64,10 @@ login-code:
 # List printers bound to the account.
 devices:
     zig build run -- devices
+
+# Fetch current command-signing credentials after Bambu login (private state).
+signing-setup:
+    bun tools/signing-setup.mjs
 
 # Stream printer status; pass --lan, --json, or --raw as needed.
 watch *args:
@@ -75,8 +83,8 @@ light state:
 
 # Validate the Raspberry Pi OS camera deployment scripts and configuration.
 camera-check:
-    bash -n deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/tests/*.sh
-    shellcheck deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/tests/*.sh
+    bash -n deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/pipanda-signing-refresh deploy/pi-os/tests/*.sh
+    shellcheck deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/pipanda-signing-refresh deploy/pi-os/tests/*.sh
     yq eval deploy/pi-os/go2rtc.yaml >/dev/null
     yq eval deploy/pi-os/go2rtc-dashboard.yaml >/dev/null
     bash deploy/pi-os/tests/run.sh

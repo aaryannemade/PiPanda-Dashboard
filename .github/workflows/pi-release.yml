@@ -68,8 +68,9 @@ jobs:
           zig build check
           zig build test --summary all
           bun run --cwd frontend check
-          bash -n deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/tests/*.sh
-          shellcheck deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/tests/*.sh
+          bun tools/signing-setup.mjs --self-test
+          bash -n deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/pipanda-signing-refresh deploy/pi-os/tests/*.sh
+          shellcheck deploy/pi-os/*.sh deploy/pi-os/pipanda-camera-source deploy/pi-os/pipanda-camera-test deploy/pi-os/pipanda-signing-refresh deploy/pi-os/tests/*.sh
 
       - name: Build frontend
         run: bun run --cwd frontend build

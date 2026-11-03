@@ -9,9 +9,10 @@ export const EMPTY_DASHBOARD: Dashboard = {
     temperatures: { nozzle: { current: null, target: null }, bed: { current: null, target: null }, chamber: { current: null, target: null } },
     fans: { cooling_percent: null, aux_percent: null, chamber_percent: null },
     light: { available: false, on: null },
+    print: { available: false, speed_level: null },
     motion: { available: false },
     extruder: { available: false, nozzle_diameter: null },
   },
   filament: { ams: null, external_spool: null, library: { available: false, roll_count: null } },
-  capabilities: { light_control: false, motion_control: false, extruder_control: false, print_again: false, job_rating: false, filament_library: false },
+  capabilities: { light_control: false, print_control: false, motion_control: false, extruder_control: false, print_again: false, job_rating: false, filament_library: false },
 };

@@ -3,7 +3,9 @@
 PiPanda targets a Raspberry Pi Zero 2 W running **64-bit Raspberry Pi OS
 Lite**. The release installer contains the static ARM64 backend, compiled
 SolidJS frontend, go2rtc, deployment scripts, systemd units and nginx site. The
-Pi does not need Zig, Bun, Node.js, Nix or a repository checkout.
+Pi does not need Zig, Bun, Nix or a repository checkout. Node.js 18+ is installed
+for the on-demand signing-key refresh helper only; the dashboard backend itself
+remains a standalone static binary.
 
 ## Runtime layout
 
@@ -64,8 +66,8 @@ sudo ./pipanda-0.2.0-aarch64.run
 The installer:
 
 1. Rejects non-ARM64 systems.
-2. Installs nginx, CA certificates, curl and `rpicam-apps-lite` (falling back to
-   `rpicam-apps`) through apt.
+2. Installs nginx, CA certificates, curl, Node.js and `rpicam-apps-lite` (falling
+   back to `rpicam-apps`) through apt.
 3. Installs the backend, frontend, go2rtc, camera helpers and service units.
 4. Preserves existing configuration and credentials during upgrades.
 5. Enables and starts nginx, `pipanda.service` and
@@ -75,6 +77,47 @@ The installer:
 Open `http://<pi-address>/` or `http://<hostname>.local/`, select **Settings**,
 and sign in to Bambu Lab. The backend starts without credentials, so no CLI
 login is required before the dashboard opens.
+
+## Provision or refresh command-signing keys
+
+After logging in through Settings, run on the Pi:
+
+```sh
+sudo pipanda-signing-refresh --restart
+```
+
+This command fetches and verifies current signing credentials, installs the
+four files in `/var/lib/pipanda` with mode 0600 and the same owner as
+`credentials.json`, then restarts **only** `pipanda.service`. It handles the
+service's `DynamicUser` ownership automatically. It does not pause, stop, change
+speed or start a print; restarting briefly disconnects the dashboard and
+requests one full status report, so running between prints is preferable.
+Network/provisioning failures preserve the previous keys and do not restart
+the service. Concurrent refresh attempts are refused.
+
+Omit `--restart` to replace the files without immediately reconnecting the
+backend, then activate them later with `sudo systemctl restart pipanda.service`.
+Use `--state-dir /absolute/path` for a custom state location. The helper uses
+the saved Bambu login; an expired account token must be fixed by logging in
+again in Settings. Key expiry is printed after refresh; no automatic timer is
+installed.
+
+### Add the helper to an existing installation
+
+The next release installer includes it. To install just the helper now, copy
+`deploy/pi-os/pipanda-signing-refresh` and `tools/signing-setup.mjs` from the
+repository to your Pi, then run there (adjust the input paths):
+
+```sh
+sudo apt-get install --yes nodejs
+sudo install -D -m 0755 pipanda-signing-refresh /usr/local/bin/pipanda-signing-refresh
+sudo install -D -m 0644 signing-setup.mjs /usr/local/share/pipanda/signing-setup.mjs
+sudo pipanda-signing-refresh --restart
+```
+
+This provisions keys only; an older backend still needs upgrading to the
+version with signing support. A checkout on the Pi can instead run
+`sudo bash deploy/pi-os/pipanda-signing-refresh --restart` directly.
 
 ## Configuration
 

@@ -404,7 +404,7 @@ fn connectFromStore(context: *Context) !*printer.Session {
             .region = creds.region,
             .username = try context.gpa.dupe(u8, creds.mqtt_username),
             .access_token = try context.gpa.dupe(u8, creds.access_token),
-        } });
+        } }, context.store.dir);
     }
 
     const access_code = creds.device_access_code orelse return error.NoAccessCode;
@@ -412,7 +412,8 @@ fn connectFromStore(context: *Context) !*printer.Session {
     return printer.Session.connect(context.gpa, context.io, owned_device_id, .{ .lan = .{
         .host = try context.gpa.dupe(u8, host),
         .access_code = try context.gpa.dupe(u8, access_code),
-    } });
+        .user_id = try context.gpa.dupe(u8, creds.mqtt_username),
+    } }, context.store.dir);
 }
 
 fn accept(context: *Context, stream: Io.net.Stream) void {
@@ -447,6 +448,8 @@ const Route = enum {
     job_thumbnail,
     camera,
     light,
+    print_control,
+    print_speed,
     auth_status,
     auth_login,
     auth_code,
@@ -472,6 +475,8 @@ fn route(target: []const u8) Route {
     if (std.mem.eql(u8, path, "/api/v1/job/thumbnail")) return .job_thumbnail;
     if (std.mem.eql(u8, path, "/api/v1/camera")) return .camera;
     if (std.mem.eql(u8, path, "/api/v1/controls/light")) return .light;
+    if (std.mem.eql(u8, path, "/api/v1/controls/print")) return .print_control;
+    if (std.mem.eql(u8, path, "/api/v1/controls/speed")) return .print_speed;
     if (std.mem.eql(u8, path, "/api/v1/auth/status")) return .auth_status;
     if (std.mem.eql(u8, path, "/api/v1/auth/login")) return .auth_login;
     if (std.mem.eql(u8, path, "/api/v1/auth/code")) return .auth_code;
@@ -556,6 +561,16 @@ fn serveRequest(request: *std.http.Server.Request, context: *Context) !void {
             if (request.head.method != .POST)
                 return methodNotAllowed(request, "POST, OPTIONS");
             return setLight(request, context);
+        },
+        .print_control => {
+            if (request.head.method != .POST)
+                return methodNotAllowed(request, "POST, OPTIONS");
+            return controlPrint(request, context);
+        },
+        .print_speed => {
+            if (request.head.method != .POST)
+                return methodNotAllowed(request, "POST, OPTIONS");
+            return setPrintSpeed(request, context);
         },
         .auth_status => {
             if (request.head.method != .GET and request.head.method != .HEAD)
@@ -776,7 +791,92 @@ fn setLight(request: *std.http.Server.Request, context: *Context) !void {
     return respondJson(request, response, .accepted);
 }
 
+const PrintActionBody = struct { action: printer.Session.PrintAction };
+
+fn parsePrintActionBody(arena: Allocator, body: []const u8) !printer.Session.PrintAction {
+    const value = std.json.parseFromSliceLeaky(PrintActionBody, arena, body, .{
+        .ignore_unknown_fields = false,
+    }) catch return error.InvalidBody;
+    return value.action;
+}
+
+fn controlPrint(request: *std.http.Server.Request, context: *Context) !void {
+    const body = readBody(request, context, 1024) catch |err| return switch (err) {
+        error.BodyTooLarge => respondErrorClose(request, .payload_too_large, "body_too_large", "request body exceeds 1 KiB"),
+        else => respondErrorClose(request, .bad_request, "invalid_body", "could not read request body"),
+    };
+    defer context.gpa.free(body);
+
+    var arena: std.heap.ArenaAllocator = .init(context.gpa);
+    defer arena.deinit();
+    const action = parsePrintActionBody(arena.allocator(), body) catch
+        return respondError(request, .unprocessable_entity, "invalid_body", "expected {\"action\":\"pause|resume|stop\"}");
+
+    context.lockAuth();
+    const session = context.session;
+    context.unlockAuth();
+
+    const active = session orelse
+        return respondError(request, .service_unavailable, "not_connected", "not logged in or no printer selected");
+
+    active.controlPrint(action) catch |err| return printCommandError(request, err);
+    const response = try std.json.Stringify.valueAlloc(context.gpa, .{
+        .accepted = true,
+        .action = @tagName(action),
+    }, .{});
+    defer context.gpa.free(response);
+    return respondJson(request, response, .accepted);
+}
+
+const SpeedBody = struct { level: printer.Session.SpeedLevel };
+
+fn parseSpeedBody(arena: Allocator, body: []const u8) !printer.Session.SpeedLevel {
+    const value = std.json.parseFromSliceLeaky(SpeedBody, arena, body, .{
+        .ignore_unknown_fields = false,
+    }) catch return error.InvalidBody;
+    return value.level;
+}
+
+fn setPrintSpeed(request: *std.http.Server.Request, context: *Context) !void {
+    const body = readBody(request, context, 1024) catch |err| return switch (err) {
+        error.BodyTooLarge => respondErrorClose(request, .payload_too_large, "body_too_large", "request body exceeds 1 KiB"),
+        else => respondErrorClose(request, .bad_request, "invalid_body", "could not read request body"),
+    };
+    defer context.gpa.free(body);
+
+    var arena: std.heap.ArenaAllocator = .init(context.gpa);
+    defer arena.deinit();
+    const level = parseSpeedBody(arena.allocator(), body) catch
+        return respondError(request, .unprocessable_entity, "invalid_body", "expected {\"level\":\"silent|standard|sport|ludicrous\"}");
+
+    context.lockAuth();
+    const session = context.session;
+    context.unlockAuth();
+
+    const active = session orelse
+        return respondError(request, .service_unavailable, "not_connected", "not logged in or no printer selected");
+
+    active.setPrintSpeed(level) catch |err| return printCommandError(request, err);
+    const response = try std.json.Stringify.valueAlloc(context.gpa, .{
+        .accepted = true,
+        .level = @tagName(level),
+    }, .{});
+    defer context.gpa.free(response);
+    return respondJson(request, response, .accepted);
+}
+
 // --- Authentication -------------------------------------------------------
+
+fn printCommandError(request: *std.http.Server.Request, err: printer.Session.PrintCommandError) !void {
+    return switch (err) {
+        error.CommandSigningRequired => respondError(request, .conflict, "signing_required", "Printer requires signed commands. Run just signing-setup and restart the backend."),
+        error.AppCertificateNotTrusted => respondError(request, .conflict, "certificate_not_trusted", "Printer does not trust the app certificate. Restart the backend to install it; if this persists, run just signing-setup."),
+        error.InvalidCommandSignature => respondError(request, .conflict, "signature_rejected", "Printer rejected the command signature. Run just signing-setup to renew signing credentials, then restart the backend."),
+        error.PrinterRejectedCommand => respondError(request, .conflict, "command_rejected", "Printer rejected the command in its current state."),
+        error.CommandTimedOut => respondError(request, .gateway_timeout, "command_timeout", "No command acknowledgement from the printer; the command may have been applied. Check printer state before retrying."),
+        else => respondError(request, .service_unavailable, "printer_unavailable", "Could not send printer command."),
+    };
+}
 
 /// Reports whether the server is authenticated and whether a printer is
 /// selected, so the settings page can render the right state on load.
@@ -1692,6 +1792,8 @@ test route {
     // The version query is what busts the browser cache between prints.
     try std.testing.expectEqual(Route.job_thumbnail, route("/api/v1/job/thumbnail?v=1176981973"));
     try std.testing.expectEqual(Route.light, route("/api/v1/controls/light"));
+    try std.testing.expectEqual(Route.print_control, route("/api/v1/controls/print"));
+    try std.testing.expectEqual(Route.print_speed, route("/api/v1/controls/speed"));
     try std.testing.expectEqual(Route.auth_login, route("/api/v1/auth/login"));
     try std.testing.expectEqual(Route.auth_status, route("/api/v1/auth/status"));
     try std.testing.expectEqual(Route.auth_devices, route("/api/v1/auth/devices"));
@@ -1829,6 +1931,28 @@ test parseLightBody {
     try std.testing.expectEqual(printer.Session.LedMode.flashing, try parseLightBody(arena.allocator(), "{\"mode\":\"flashing\"}"));
     try std.testing.expectError(error.InvalidBody, parseLightBody(arena.allocator(), "{}"));
     try std.testing.expectError(error.InvalidBody, parseLightBody(arena.allocator(), "{\"on\":1}"));
+}
+
+test parsePrintActionBody {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+
+    try std.testing.expectEqual(printer.Session.PrintAction.pause, try parsePrintActionBody(arena.allocator(), "{\"action\":\"pause\"}"));
+    try std.testing.expectEqual(printer.Session.PrintAction.@"resume", try parsePrintActionBody(arena.allocator(), "{\"action\":\"resume\"}"));
+    try std.testing.expectEqual(printer.Session.PrintAction.stop, try parsePrintActionBody(arena.allocator(), "{\"action\":\"stop\"}"));
+    // Starting a job needs a sliced file, so it is not a print action.
+    try std.testing.expectError(error.InvalidBody, parsePrintActionBody(arena.allocator(), "{\"action\":\"start\"}"));
+    try std.testing.expectError(error.InvalidBody, parsePrintActionBody(arena.allocator(), "{}"));
+}
+
+test parseSpeedBody {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+
+    try std.testing.expectEqual(printer.Session.SpeedLevel.silent, try parseSpeedBody(arena.allocator(), "{\"level\":\"silent\"}"));
+    try std.testing.expectEqual(printer.Session.SpeedLevel.ludicrous, try parseSpeedBody(arena.allocator(), "{\"level\":\"ludicrous\"}"));
+    try std.testing.expectError(error.InvalidBody, parseSpeedBody(arena.allocator(), "{\"level\":\"turbo\"}"));
+    try std.testing.expectError(error.InvalidBody, parseSpeedBody(arena.allocator(), "{}"));
 }
 
 test parseRegion {

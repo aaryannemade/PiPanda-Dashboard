@@ -45,6 +45,10 @@ export interface Dashboard {
       available: boolean;
       on: boolean | null;
     };
+    print: {
+      available: boolean;
+      speed_level: SpeedLevel | null;
+    };
     motion: { available: boolean };
     extruder: {
       available: boolean;
@@ -61,6 +65,7 @@ export interface Dashboard {
   };
   capabilities: {
     light_control: boolean;
+    print_control: boolean;
     motion_control: boolean;
     extruder_control: boolean;
     print_again: boolean;
@@ -68,6 +73,10 @@ export interface Dashboard {
     filament_library: boolean;
   };
 }
+
+export type SpeedLevel = "silent" | "standard" | "sport" | "ludicrous";
+
+export type PrintAction = "pause" | "resume" | "stop";
 
 export interface Temperature {
   current: number | null;

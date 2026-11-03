@@ -237,7 +237,8 @@ endpoint contract, capability flags and examples.
 
 The device screen is a responsive SolidJS application styled after Bambu Handy.
 It polls the dashboard endpoint once per second, embeds the go2rtc WebRTC player,
-renders live print and AMS state, and sends chamber-light commands.
+renders live print and AMS state, and controls the chamber light, print
+pause/resume/stop and speed profiles.
 
 Install the locked dependencies once:
 
@@ -257,6 +258,25 @@ The browser API must remain same-origin; use a reverse-proxy path rather than a
 different origin. `VITE_API_BASE` may set that same-origin path prefix.
 `just web-check` type-checks the app and `just web-build`
 creates the production bundle in `frontend/dist`.
+
+For print controls on authorization-control firmware, provision current signing
+credentials after logging in, then restart the API:
+
+```sh
+nix develop --command just signing-setup
+```
+
+No Developer Mode is required. Credentials are stored mode 0600 in the private
+state directory and registered with the printer on connection. The runtime
+signer is pure Zig and works in the static Pi build; Bun is only needed for
+this one-time provisioning step. Setup prints the certificate's expiry date;
+renewal is manual. See [command-signing setup](docs/frontend-api.md#command-signing-setup)
+for Pi deployment and error handling.
+
+On an installed Pi, provision or renew directly with
+`sudo pipanda-signing-refresh --restart` (included in the next release
+installer; [manual installation](deploy/pi-os/README.md#add-the-helper-to-an-existing-installation)
+is also available).
 
 ### Why the status model is a JSON document
 

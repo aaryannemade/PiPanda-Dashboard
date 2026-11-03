@@ -479,6 +479,125 @@ button:disabled {
   gap: 16px;
 }
 
+.print-card {
+  margin-bottom: 16px;
+  padding: 14px;
+}
+
+.print-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.print-action {
+  --tone: #9ca09d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  height: 56px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--tone), transparent 78%);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--tone), transparent 89%);
+  color: var(--tone);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.print-action svg {
+  flex-shrink: 0;
+}
+
+.print-action span {
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.print-action.stop { --tone: #ff5f5f; }
+.print-action.pause { --tone: #f2b84b; }
+.print-action.resume { --tone: var(--green-bright); }
+.print-action.speed { --tone: #55a1ff; }
+
+.print-action:hover:not(:disabled),
+.print-action.open {
+  border-color: color-mix(in srgb, var(--tone), transparent 50%);
+  background: color-mix(in srgb, var(--tone), transparent 80%);
+}
+
+.print-action:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.print-action.confirming {
+  border-color: var(--tone);
+  background: color-mix(in srgb, var(--tone), transparent 72%);
+  color: #fff;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--tone), transparent 65%);
+}
+
+.print-action:disabled:not(.pending) {
+  --tone: #6a6e6b;
+  opacity: 0.55;
+}
+
+.print-action.pending svg {
+  animation: pulse 700ms infinite alternate;
+}
+
+.speed-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+  padding: 5px;
+  border-radius: 14px;
+  background: #121413;
+}
+
+.speed-options button {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 2px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #9ca09d;
+  cursor: pointer;
+}
+
+.speed-options button strong {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.speed-options button span {
+  color: #666b67;
+  font-size: 0.68rem;
+}
+
+.speed-options button.selected {
+  border-color: rgba(85, 161, 255, 0.45);
+  background: rgba(85, 161, 255, 0.14);
+  color: #8fc0ff;
+}
+
+.speed-options button.selected span {
+  color: #6f9bd4;
+}
+
 .nozzle-card {
   min-height: 270px;
   padding: 20px;
@@ -936,9 +1055,21 @@ button:disabled {
   font-weight: 600;
 }
 
+.feed-line {
+  width: 3px;
+  height: 30px;
+  margin-top: -8px;
+  border-radius: 0 0 2px 2px;
+}
+
+.spool-item.active .feed-line {
+  background: var(--spool-color);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--spool-color), transparent 35%);
+}
+
 .remaining {
   min-height: 1em;
-  margin-top: 7px;
+  margin-top: 4px;
   color: #656965;
   font-size: 0.68rem;
 }
@@ -1110,6 +1241,21 @@ button:disabled {
   .control-layout {
     grid-template-columns: 1fr 1fr;
     gap: 12px;
+  }
+
+  .print-card {
+    margin-bottom: 12px;
+    padding: 10px;
+  }
+
+  .print-actions {
+    gap: 8px;
+  }
+
+  .print-action {
+    gap: 6px;
+    height: 52px;
+    padding: 0 6px;
   }
 
   .nozzle-card {

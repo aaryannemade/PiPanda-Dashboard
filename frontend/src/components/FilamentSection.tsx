@@ -126,9 +126,9 @@ function FilamentSpool(props: { tray: AmsTray; label: string; active: boolean })
   };
 
   return (
-    <div class="spool-item" classList={{ active: props.active }}>
+    <div class="spool-item" classList={{ active: props.active }} style={{ "--spool-color": color() } as JSX.CSSProperties}>
       <span class="material-name">{material()}</span>
-      <div class="spool" style={{ "--spool-color": color() } as JSX.CSSProperties}>
+      <div class="spool">
         <span class="spool-flange left" />
         <span class="spool-core">
           <strong>{props.label}</strong>
@@ -136,6 +136,7 @@ function FilamentSpool(props: { tray: AmsTray; label: string; active: boolean })
         </span>
         <span class="spool-flange right" />
       </div>
+      <span class="feed-line" aria-hidden="true" />
       <span class="remaining">{remaining() ?? props.tray.tray_sub_brands ?? ""}</span>
     </div>
   );

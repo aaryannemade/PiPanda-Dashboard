@@ -71,7 +71,7 @@ if (( INSTALL_PACKAGES )); then
     camera_package="rpicam-apps-lite"
   fi
   apt-get install --yes --no-install-recommends \
-    "$camera_package" ca-certificates curl nginx
+    "$camera_package" ca-certificates curl nginx nodejs
 fi
 
 install -D -m 0755 "$PAYLOAD/bin/pipanda" "$ROOT/usr/local/bin/pipanda"
@@ -82,6 +82,10 @@ install -D -m 0755 "$PAYLOAD/deploy/pipanda-camera-test" \
   "$ROOT/usr/local/bin/pipanda-camera-test"
 install -D -m 0755 "$PAYLOAD/deploy/uninstall.sh" \
   "$ROOT/usr/local/bin/pipanda-uninstall"
+install -D -m 0755 "$PAYLOAD/deploy/pipanda-signing-refresh" \
+  "$ROOT/usr/local/bin/pipanda-signing-refresh"
+install -D -m 0644 "$PAYLOAD/deploy/signing-setup.mjs" \
+  "$ROOT/usr/local/share/pipanda/signing-setup.mjs"
 
 # Frontend assets are content-addressed. Remove the previous build so obsolete
 # hashes do not accumulate and index.html cannot refer to a mixed release.
@@ -152,6 +156,7 @@ Configuration: /etc/pipanda/pipanda.env
 Backend logs:  journalctl -u pipanda.service -f
 Camera logs:   journalctl -u pipanda-camera.service -f
 Hardware test: sudo pipanda-camera-test
+Signing keys:  sudo pipanda-signing-refresh --restart
 Uninstall:     sudo pipanda-uninstall
 
 Open the dashboard, select Settings, and sign in to Bambu Lab.

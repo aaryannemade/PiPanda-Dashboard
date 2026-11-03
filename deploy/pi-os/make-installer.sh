@@ -41,12 +41,14 @@ for file in \
   pipanda.env \
   pipanda-camera-source \
   pipanda-camera-test \
+  pipanda-signing-refresh \
   pipanda-camera.service \
   pipanda.service \
   uninstall.sh; do
   cp "$SCRIPT_DIR/$file" "$stage/payload/deploy/$file"
 done
 cp "$SCRIPT_DIR/go2rtc-dashboard.yaml" "$stage/payload/deploy/go2rtc.yaml"
+cp "$SCRIPT_DIR/../../tools/signing-setup.mjs" "$stage/payload/deploy/signing-setup.mjs"
 
 tar -C "$stage" -czf "$tmp/payload.tar.gz" .
 

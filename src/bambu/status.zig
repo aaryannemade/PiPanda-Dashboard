@@ -174,6 +174,7 @@ pub const Status = struct {
                     .chamber_percent = snap.chamber_fan_percent,
                 },
                 .light = .{ .available = true, .on = snap.chamber_light_on },
+                .print = .{ .available = true, .speed_level = speedLevelName(snap.speed_level) },
                 .motion = .{ .available = false },
                 .extruder = .{
                     .available = false,
@@ -190,6 +191,7 @@ pub const Status = struct {
             },
             .capabilities = .{
                 .light_control = true,
+                .print_control = true,
                 .motion_control = false,
                 .extruder_control = false,
                 .print_again = false,
@@ -291,6 +293,18 @@ pub const Status = struct {
 
 fn optionalString(value: []const u8) ?[]const u8 {
     return if (value.len == 0) null else value;
+}
+
+/// Names `spd_lvl` the way the speed command accepts it, so the frontend can
+/// send back exactly what it was shown.
+fn speedLevelName(level: ?i64) ?[]const u8 {
+    return switch (level orelse return null) {
+        1 => "silent",
+        2 => "standard",
+        3 => "sport",
+        4 => "ludicrous",
+        else => null,
+    };
 }
 
 fn jobResult(state: ?[]const u8) ?[]const u8 {
@@ -482,7 +496,7 @@ test "dashboard projection carries cloud job metadata when the caller resolved i
     defer status.deinit();
 
     _ = try status.apply(
-        \\{"print":{"gcode_state":"RUNNING","subtask_name":"Benchy","mc_percent":42}}
+        \\{"print":{"gcode_state":"RUNNING","subtask_name":"Benchy","mc_percent":42,"spd_lvl":3}}
     );
 
     const json = try status.dashboardJson(std.testing.allocator, .{
@@ -506,4 +520,6 @@ test "dashboard projection carries cloud job metadata when the caller resolved i
     try std.testing.expectEqualStrings("0.16mm layer, 2 walls, 15% infill", job.get("profile").?.string);
     // The job name still comes from MQTT, not from the task record.
     try std.testing.expectEqualStrings("Benchy", job.get("name").?.string);
+    const print = parsed.value.object.get("controls").?.object.get("print").?.object;
+    try std.testing.expectEqualStrings("sport", print.get("speed_level").?.string);
 }

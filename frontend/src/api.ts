@@ -1,4 +1,4 @@
-import type { AuthStatus, Dashboard, Device, HomeAssistantConfig, HomeAssistantEntities, HomeAssistantEntityState, HomeAssistantGroup, LoginResult, MakerworldDetail, MakerworldPage } from "./types";
+import type { AuthStatus, Dashboard, Device, HomeAssistantConfig, HomeAssistantEntities, HomeAssistantEntityState, HomeAssistantGroup, LoginResult, MakerworldDetail, MakerworldPage, PrintAction, SpeedLevel } from "./types";
 
 const apiBase = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 
@@ -62,6 +62,24 @@ export function setChamberLight(on: boolean, signal?: AbortSignal): Promise<{ ac
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ on }),
+    signal,
+  });
+}
+
+export function controlPrint(action: PrintAction, signal?: AbortSignal): Promise<{ accepted: boolean; action: PrintAction }> {
+  return apiRequest("/api/v1/controls/print", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+    signal,
+  });
+}
+
+export function setPrintSpeed(level: SpeedLevel, signal?: AbortSignal): Promise<{ accepted: boolean; level: SpeedLevel }> {
+  return apiRequest("/api/v1/controls/speed", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ level }),
     signal,
   });
 }

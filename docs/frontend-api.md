@@ -114,6 +114,7 @@ Returns the complete frontend bootstrap document:
       "chamber_percent": 60
     },
     "light": { "available": true, "on": true },
+    "print": { "available": true, "speed_level": "standard" },
     "motion": { "available": false },
     "extruder": { "available": false, "nozzle_diameter": "0.4" }
   },
@@ -124,6 +125,7 @@ Returns the complete frontend bootstrap document:
   },
   "capabilities": {
     "light_control": true,
+    "print_control": true,
     "motion_control": false,
     "extruder_control": false,
     "print_again": false,
@@ -210,6 +212,78 @@ The response is HTTP 202:
 Accepted means the QoS 1 MQTT command was published. It does not claim the
 printer applied the command; the frontend should use the next dashboard state
 update as confirmation.
+
+### `POST /api/v1/controls/print`
+
+Pauses, resumes or cancels the current job:
+
+```json
+{ "action": "pause" }
+```
+
+`action` is `pause`, `resume` or `stop`. The response is HTTP 202
+`{ "accepted": true, "action": "pause" }`. Confirmation is `printer.state`
+moving to `PAUSE`, back to `RUNNING`, or to `FAILED` (a stopped job reports as
+failed). The firmware ignores an action that does not fit the current state.
+There is no `start`: starting a job needs a sliced file on the printer, which
+this API does not upload.
+
+Unlike light control, HTTP 202 for print/speed means a matching printer
+acknowledgement was received (same command and sequence ID), not just MQTT
+delivery. The physical state change may still take a few seconds. Rejections
+return HTTP 409 with `signing_required`, `certificate_not_trusted`,
+`signature_rejected` or `command_rejected`. Missing acknowledgements return
+HTTP 504 `command_timeout`; the command may have executed, so do not retry
+automatically. Dashboard polling continues to confirm the physical state.
+
+### `POST /api/v1/controls/speed`
+
+Sets the print speed profile:
+
+```json
+{ "level": "sport" }
+```
+
+`level` is `silent`, `standard`, `sport` or `ludicrous`, the same names
+`controls.print.speed_level` reports (`null` until the printer has sent
+`spd_lvl`). The response is HTTP 202 `{ "accepted": true, "level": "sport" }`.
+
+### Command-signing setup
+
+Newer P1S firmware requires RSA-SHA256 signatures on `print` commands, over
+both LAN and cloud MQTT. Developer Mode is **not required** when signing
+credentials are available. After logging in, provision them once:
+
+```sh
+nix develop --command just signing-setup
+```
+
+Restart the backend afterward. The setup helper uses Bun (already in the dev
+shell) to fetch a current app certificate, its full chain, the official CRL
+and matching private key from Bambu's certificate service. It verifies the key
+against the certificate before writing four mode-0600 files in
+`PIPANDA_STATE_DIR`: `slicer_key.pem`, `slicer_cert.pem`, `slicer_crl.pem` and
+`slicer_cert_id.txt`. These files must never be committed, logged or served to
+the browser. Setup prints the expiration date; rerun it when the certificate
+expires, is revoked, or Bambu rotates its application identity. Renewal is
+operator-driven, not part of dashboard polling.
+
+The runtime signer is pure Zig: no Bun, Node or OpenSSL dependency on the Pi.
+On the Pi, run `sudo pipanda-signing-refresh --restart` to provision or renew
+them directly. This uses Node.js 18+ only for the refresh, stages and verifies
+the new files before replacing the old ones, matches `credentials.json`
+ownership for `DynamicUser`, and restarts only the backend. Omit `--restart`
+to activate them later. The next release installer includes both helpers and
+Node.js; see [Pi deployment](../deploy/pi-os/README.md#provision-or-refresh-command-signing-keys)
+for adding them to an existing installation. No manual transfer of signing
+keys from a development computer is needed.
+
+Every connection registers the full chain/CRL with `security.app_cert_install`
+and waits for its acknowledgement before sending a signed print command.
+The printer's trust store is volatile. A printer reboot requires reconnecting
+the backend. Nothing repeatedly requests `pushall`. Monitoring and light
+control still work without signing files; unsigned print commands on secured
+firmware return `signing_required` rather than a vague frontend timeout.
 
 ## Home Assistant integration endpoints
 
@@ -448,7 +522,7 @@ Errors use codes `missing_id`, `invalid_id`, `keyword_too_long`,
 These drive the same Bambu Lab cloud login flow as `pipanda login`, so the
 settings page can authenticate without touching the CLI. Until login completes
 and a printer is selected, `/api/v1/dashboard`, `/api/v1/printer/state` and
-`/api/v1/controls/light` answer `503 not_connected`.
+the `/api/v1/controls/*` endpoints answer `503 not_connected`.
 
 ### `GET /api/v1/auth/status`
 
